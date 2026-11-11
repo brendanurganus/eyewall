@@ -24,7 +24,8 @@ A single-page WebGL 2 app (three.js r160), bundled into one HTML file.
     node build.mjs --dev      # unminified
 
 Published as a Claude artifact titled "Eyewall prototype: opening, dive and Katrina".
-Flow: shore opening (16.5 s) -> dive from space (11 s) -> drivable Katrina scene.
+Flow: shore opening (16.5 s) -> dive from space (11 s) -> drivable Katrina scene, starting at
+28 Aug 2005 18:00 UTC with storm time running (Stage 3).
 
 URL hashes: `#storm` skips straight to the storm scene; `#low` is a cheap mode for software
 renderers (used by the test harness).
@@ -33,14 +34,15 @@ renderers (used by the test harness).
 
 | File | What it does |
 |---|---|
-| `main.js` | Everything is wired here: modes (`intro`, `dive`, `storm`), main loop, HUD, storm map, lightning, quality governor, intro timeline, dive camera path. |
-| `storm.js` | Storm reconstruction. `prepareTrack`, `stormAt(track, timeMs)`, `windAt`, `seaAt`, `precipAt`, `sunPosition`. No rendering. |
+| `main.js` | Everything is wired here: modes (`intro`, `dive`, `storm`), main loop, storm clock and speed controls, storm placement by lat/lon, sun/moon lighting (`lighting()`), HUD, storm map, lightning, quality governor, intro timeline, dive camera path. |
+| `astro.js` | Moon position and phase, sidereal time, approximate natural light levels (lux) by sun elevation. No rendering. |
+| `storm.js` | Storm reconstruction. `prepareTrack`, `stormAt(track, timeMs)`, `trackSpan`, `windAt`, `seaAt`, `precipAt`, `sunPosition`. No rendering. |
 | `fft.js` | CPU spectral wave cascade (largest waves). Physics samples this, so the boat rides the surface that is drawn. |
 | `oceanSim.js` | Wave simulation: cascade 0 on CPU, cascades 1-2 by GPU FFT; displacement, slopes, foam. `setSea`, `setScale`. |
 | `ocean.js` | Ocean mesh and shader: reflection, crest scattering, foam regimes, wind streaks, wake, shore mode. |
-| `sky.js` | Atmosphere + ray-marched clouds into a panorama used for background, reflections, fog colour and yacht lighting. `SKY_COMMON` holds the cloud model shared with the dive. |
+| `sky.js` | Atmosphere (Rayleigh, Mie, ozone) + ray-marched clouds into a panorama used for background, reflections, fog colour and yacht lighting. Background pass draws the sun, moon disc with phase, and stars. `setLight()` for the storm scene, `setSun()` for the intro. `SKY_COMMON` holds the cloud model shared with the dive. |
 | `dive.js` | Full-screen ray-march of the storm from any altitude over a curved Earth, plus the NASA photo. |
-| `post.js` | Fog, rain streaks, motion blur, glare, auto-exposure, tone map, lens droplets. |
+| `post.js` | Fog, rain streaks, motion blur, glare, auto-exposure with night response (dimming, scotopic colour loss), tone map, lens droplets, dissolve for wave-tile rescales. |
 | `yacht.js` | Procedural 52 m motor yacht (original design). |
 | `boat.js` | Boat dynamics, input (keyboard, gamepad), chase camera. |
 | `particles.js` | Spray. |
@@ -54,14 +56,17 @@ renderers (used by the test harness).
    r34[4], r50[4], r64[4], rmw, poci, ...}], eyes:[[time, d1, d2], ...] }`. `tools/katrina.py`
    shows how, from `data/` (or regenerate with `tools/parse.py` + `tools/fdeck.py`).
 2. `const track = prepareTrack(obj); const st = stormAt(track, Date.UTC(...));`
-3. Everything else reads `st`. In `main.js` the time is the constant `T0` and the storm is the
-   module-level `st`: both must become variables for Stage 3 (time progression).
-4. Eye radius: `main.js` averages aircraft fixes within 2.5 h, else falls back to
-   `eyeRadius(st)` = 0.62 x radius of maximum wind.
+3. Everything else reads `st`. In `main.js`, `clock.t` is storm time (UTC ms) and `st = stormNow(clock.t)`
+   is recomputed every frame. `T0` is only the start time; Stage 4's path selector should set `clock.t`
+   and call `SPOTS.Digit1()` (or `teleport`). `track`, `K` (eye fixes) and `SAT_T` are Katrina-specific.
+4. Eye radius (`eyeAt`): aircraft fixes weighted by time difference (Gaussian, sigma 1.5 h, within 6 h),
+   blended into `eyeRadius(st)` = 0.62 x radius of maximum wind as fixes thin out.
 5. Satellite image: see below. Without one, `uUseSat` stays 0 and the analytic cloud model is used.
 
-Coordinates: world x = east, z = south, y = up, metres. The boat stays near the world origin; the
-storm centre is `center` in `main.js`. Storm-relative positions are (e, n) metres east/north.
+Coordinates: world x = east, z = south, y = up, metres. The world origin is pinned to a latitude and
+longitude (`geo`, set on teleport, local flat projection). The storm centre `center` is placed from its
+track position every frame, so it moves past the boat; with "keep pace" (G) the origin moves with the
+storm instead. Sun and moon are computed at the boat's own lat/lon. Storm-relative positions are (e, n) metres east/north.
 Compass heading psi: forward = (sin psi, 0, -cos psi).
 
 ### Satellite image for another storm
@@ -78,6 +83,50 @@ Compass heading psi: forward = (sin psi, 0, -cos psi).
 - The service gives the date, not the capture minute. Night has no visible image.
 - A published Claude artifact cannot fetch images at run time, so images must be bundled there.
   A GitHub Pages copy could fetch them, if the service allows cross-origin requests (not checked).
+
+## Stage 3: time, day/night, moon (this stage)
+
+- **Clock.** Storm time runs only in the storm scene, at 1x, 10x, 60x or 600x (`[` `]`, P pause, on-screen
+  bar). The storm follows its track and intensity; waves, boat, cloud motion and rain stay real time.
+  It stops at the end of the NOAA track. Note: frame dt is capped at 50 ms, so below 20 fps storm
+  time runs slower than the chosen speed.
+- **Translation velocity** is now each 6-hour segment's velocity blended between segment midpoints, so
+  the wind asymmetry no longer jumps at each fix. Test values moved by at most 0.1 m / 1 kt.
+- **Keep pace (G).** Off by default: the storm (about 12 kt) outruns the yacht, which is realistic.
+  On: the boat is carried with the storm. Owner to decide the default.
+- **Wave tiles** now re-size while driving when the ideal tile differs by more than 45%, under a 0.7 s
+  dissolve. The wave pattern does change at that moment (a visible but hidden swap, and the boat
+  feels it). In a 14 h Katrina run at 600x it happened once.
+- **Satellite photo** (one Terra pass, 28 Aug ~16:25 UTC; the minute is inferred from Terra's orbit)
+  is used only within 12 h of that time; the dive shows the photo only while the sun is up over the
+  storm. Outside that window the analytic clouds are used everywhere (the weak ones).
+
+### Night
+
+Moonlight is about 1/400,000 of sunlight; half-float buffers and the 400x auto-exposure cap cannot
+span that. The standard approach is used:
+1. **Pre-exposure.** `lighting()` computes natural light at the boat (lux): sun by elevation from an
+   approximate USNO-style table, plus moon (`moonLux`), plus a 0.002 lux airglow/starlight floor.
+   Above 1000 lux nothing changes (day renders exactly as before). Below, all natural light is
+   multiplied by `pre = 1000 / lux`.
+2. **Key light.** The sun, until the moon outshines the twilight or the sun is 15 deg down; then the
+   moon (direction, phase-dependent brightness, atmospheric reddening). Same pipeline lights clouds,
+   sea and yacht.
+3. **Night response** (`post.js` EXP_FS): true adaptation level = metered luminance / pre. Below
+   `uLref` (0.001, under the day eyewall's ~0.025) the image darkens as level^0.2 (floor 0.045, so the
+   boat stays findable) and dim areas lose colour with a blue shift (scotopic). Bright lamps keep colour.
+4. **Artificial light is not physical at night**: lit windows x pre^0.2, navigation lights x pre^0.3,
+   lightning x pre^0.18. Physically they would be thousands of times brighter than moonlight; these
+   exponents were set by eye on software-renderer stills.
+5. Twilight fixes in `sky.js`: clouds were always lit as if the sun were at the horizon, and the
+   ambient term barely fell below it. Now cloud tops see the sun until ~3 deg below the horizon and
+   the ambient falls with the twilight table. Ozone absorption added (Hillaire 2020 coefficients).
+6. **Moon**: Astronomical Almanac low-precision series (~0.3 deg) + parallax; phase checked against
+   published 2005 phase times (`node test/astro.mjs`: last quarter 90.1 deg vs 90). Brightness by
+   phase: Krisciunas & Schaefer (1991). Disc at true size (0.26 deg radius), Lommel-Seeliger shading,
+   procedural maria, earthshine. Its brightness is compressed at night (else it is a blown-out blob).
+7. **Stars are procedural** (realistic count by magnitude, fixed to the celestial sphere and rotating
+   with sidereal time), not a real catalogue. No Milky Way.
 
 ## Data (`data/`), from Stage 1
 
@@ -114,8 +163,11 @@ GIBS acknowledgment text belongs on the methodology page.
   Checked for Katrina at 2005-08-28 18Z: 150 kt at the radius of maximum wind, 902 mb centre,
   radii matched within a few knots in all quadrants. `node test/storm.mjs`.
 - **Wave height and period:** Young (1988) equivalent-fetch model for peak Hs and Tp, plus an
-  analytic spatial shape of my own. **The Young (1988) coefficients in `storm.js` were written
-  from memory and have not been checked against the paper. Check them.**
+  analytic spatial shape of my own. Coefficients checked in Stage 3 against Young (2017, Atmosphere
+  8:194, eqs 5-7), which restates the 1988 model: fetch polynomial a-f, R' = 22.5e3 log10 R - 70.8e3,
+  Hs law all match. Tp law (0.045 coefficient) agrees with JONSWAP within 1.5% and with the review's
+  energy-frequency relation within ~5%. **Open: the fit covers Vmax 20-60 m/s; the code extrapolates
+  to 78 m/s. Katrina at peak is 72 m/s: 22.0 m as coded vs 18.2 m if clamped. Owner decision.**
 - **Buoy check (one buoy, one storm):** NDBC 42040 in Katrina. Model vs observed Hs:
   5.3/5.1 m (28th 12Z), 10.0/8.6 m (29th 00Z), 11.3/12.3 m (06Z), then the model peaks at
   12.0 m where the buoy recorded 16.9 m (11Z). Period agrees: 14.1-14.4 s model vs 14.3 s observed.
@@ -131,15 +183,17 @@ GIBS acknowledgment text belongs on the methodology page.
 
 ## Known problems, in order of importance
 
-1. **Frame rate on the owner's laptop is unconfirmed.** They reported "about 8 fps" after the sky
-   resolution was raised and the dive added. A quality governor (4 levels) and an fps counter were
-   added in response, but no reading has come back yet. Ask for the counter values first.
+1. **Frame rate on the owner's laptop is unconfirmed.** The owner says "8 fps" was a figure of speech
+   for "looked bad". Governor targets ~30-60 fps (drops a level above 23 ms/frame). Stage 3 adds
+   ~4 microseconds of CPU per frame and little GPU (stars only where clear sky shows at night).
 2. **The 3D clouds are poor** (owner's word: "garbage"). The analytic shapes and coarse noise show.
    The space view was fixed by using the NASA photo; below ~110 km and at sea level the clouds are
    still the weak ones. The proper fix is a games-style volumetric renderer (layered Perlin-Worley
    noise, erosion, temporal accumulation). Not started.
-3. **Only Katrina at one instant has ever been run.** Weak storms, Pacific storms, night and dusk
-   at sea are untested. `OceanSim.setScale` resizes wave tiles on teleport only, not while driving.
+3. **Only Katrina has been run** (now across its whole track and day/night). Pacific storms untested.
+   Weak stages (TS/TD) still draw an eye in the clouds; there is no land, so the boat can sit "at sea"
+   over Louisiana after landfall, and no shallow-water waves. All night and dusk judgements so far are
+   from software-renderer stills: motion and real-GPU colour are unseen.
 4. **No real breaking surf** in the shore opening. Foam lines and a rising waterline stand in.
 5. **Yacht is blocky up close; no shadows anywhere.**
 6. **All development previews were on a software renderer** (SwiftShader, under 1 fps). Motion was
@@ -150,6 +204,7 @@ GIBS acknowledgment text belongs on the methodology page.
 ## Controls (storm scene)
 
 W/S or up/down throttle, A/D or left/right rudder, drag to look, gamepad.
+[ ] storm time slower/faster (1x, 10x, 60x, 600x), P pause storm time, G keep pace with the storm.
 1 eyewall, 2 eye, 3 eye edge, 4 outer bands. H readout, N map, T lightning, L lens droplets,
 K shake, M motion blur, F fps counter, I replay intro, V replay dive. Space/Enter/Esc skips.
 
@@ -157,6 +212,11 @@ K shake, M motion blur, F fps counter, I replay intro, V replay dive. Space/Ente
 
     node test/storm.mjs                      # wind/wave numbers and the buoy comparison
     node test/hs.mjs                         # simulated wave height vs target
+    node test/astro.mjs                      # moon phase vs published 2005 phase times
+    node test/scenes.mjs outDir "label|ISO time|spot|wait s|js"...   # stills at chosen storm times
+    node test/timerun.mjs <ISO> <speed 0-3> <fixedDt> <secs> [spot]  # run storm time, log evolution
+                                             # (FOLLOW=1 for keep-pace). Put dbg.cam off the yacht:
+                                             # the boat sits at the origin.
     HASH='#low' node test/shot.mjs out.png 800 450 15000 "<js before>" "<js to eval after>"
 
 `shot.mjs` drives headless Chrome with software GL. Useful hooks on `window.__ew`:
@@ -166,11 +226,11 @@ frozen test; that is a test artefact.
 
 ## What is left (the brief's build order, minus what is done)
 
-Done: Stage 1; Stage 2 (shore opening, Katrina scene); the dive from Stage 4; a basic readout,
-storm map, lightning, title and fps governor.
+Done: Stage 1; Stage 2 (shore opening, Katrina scene); Stage 3 (storm time, speed controls,
+day/night, moon, stars); the dive from Stage 4; a basic readout, storm map with track, lightning,
+title and fps governor.
 
 Left:
-- **Stage 3:** time progression along the track, speed controls, day/night, moon.
 - **Stage 4:** globe (Blue Marble), archive, category-coloured tracks, path selector, info panels
   with human toll and damage, launching the dive at the chosen point; the rest of the intro (rise
   from the beach to space, tracks drawing in date order).

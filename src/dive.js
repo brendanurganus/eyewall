@@ -5,7 +5,7 @@ import { Pass, fsMat, rt } from './gl.js';
 import { SKY_COMMON } from './sky.js';
 
 const FS = SKY_COMMON + `
-uniform mat4 uInvProj, uCamWorld; uniform vec3 uCamKm; uniform float uSeed; uniform int uDiveSteps; uniform sampler2D uSatWide, uSatCore;
+uniform mat4 uInvProj, uCamWorld; uniform vec3 uCamKm; uniform float uSeed; uniform int uDiveSteps; uniform sampler2D uSatWide, uSatCore; uniform float uPhoto, uKeyUp; // NASA photo (daylight, near its date only); is the light source up
 vec4 photo(vec2 xz){ vec2 ll = lonlat(xz), uw = satUV(ll, uSatW), uc = satUV(ll, uSatC);
   vec3 c = mix(texture(uSatWide, uw).rgb, texture(uSatCore, uc).rgb, inRect(uc, 0.08));
   return vec4(c, inRect(uw, 0.03)); }
@@ -21,7 +21,7 @@ void main(){
   vec3 L = vec3(0.); float T = 1.;
   float mu = dot(rd, uSunDir), ph = 0.75 + 0.9*pow(max(mu,0.), 6.) + 2.5*pow(max(mu,0.), 40.);
   vec3 ambN = mix(uAmbCol, vec3(dot(uAmbCol, vec3(0.3333))), 0.8);
-  float altKm = length(oc) - RE, wP = uUseSat*smoothstep(22., 110., altKm);
+  float altKm = length(oc) - RE, wP = uPhoto*smoothstep(22., 110., altKm);
   // cloud tops take their brightness detail from the photograph
   float tint = 1.;
   if (uUseSat > 0.5) { vec2 h12 = sph(oc, rd, RE + 12.); if (h12.x > 0.) { vec4 pg = photo((ro + rd*h12.x).xz); tint = mix(1., clamp(dot(pg.rgb, vec3(0.4, 0.4, 0.2))*1.25, 0.35, 1.15), pg.a); } }
@@ -66,16 +66,16 @@ void main(){
     float rr, sh = density(vec3(ps.x, 0., ps.z) + uSunDir*3.0, true, rr) + density(vec3(ps.x, 0., ps.z) + uSunDir*9.0, true, rr);
     sea *= mix(1., 0.3, clamp(sh*1.5, 0., 1.));
     vec3 haze = 1.-exp(-(8./nv)*BR*0.9);
-    if (uUseSat > 0.5) { vec4 pg = photo(ps.xz); sea = mix(sea, pg.rgb*3.6, pg.a*smoothstep(8., 60., altKm)); }
-    bg = sea*(1.-haze) + haze*vec3(0.25, 0.42, 0.85)*uSunI*0.05*(0.15 + 0.85*sunUp);
+    if (uPhoto > 0.001) { vec4 pg = photo(ps.xz); sea = mix(sea, pg.rgb*3.6, uPhoto*pg.a*smoothstep(8., 60., altKm)); }
+    bg = sea*(1.-haze) + haze*vec3(0.25, 0.42, 0.85)*uSunI*uKeyUp*0.05*(0.15 + 0.85*sunUp);
   } else {
     float b = length(cross(oc, rd)) - RE;
     float glow = exp(-max(b, 0.)/11.)*step(0., dot(rd, -normalize(oc)) + 0.9999);
-    bg = vec3(0.22, 0.42, 1.0)*glow*uSunI*0.06 + vec3(step(0.9985, hash1(floor(vUv*900.))))*0.25*(1.-glow);
+    bg = vec3(0.22, 0.42, 1.0)*glow*uSunI*uKeyUp*0.06 + vec3(step(0.9985, hash1(floor(vUv*900.))))*0.25*(1.-glow);
   }
   // thin air between the camera and the clouds, when looking from far above
   float alt = length(oc) - RE; vec3 airT = exp(-BR*clamp((alt - 10.)*0.2, 0., 6.));
-  L = L*airT + (1.-airT)*vec3(0.25, 0.42, 0.85)*uSunI*0.045*(1.-T);
+  L = L*airT + (1.-airT)*vec3(0.25, 0.42, 0.85)*uSunI*uKeyUp*0.045*(1.-T);
   L += T*bg;
   if (wP > 0.001) {
     // from high up, show NASA's photograph of the storm itself, sampled at cloud-top level
@@ -89,7 +89,7 @@ const BLIT = `varying vec2 vUv; uniform sampler2D uTex; void main(){ gl_FragColo
 export class Dive {
   constructor(renderer, sky) {
     this.r = renderer; this.pass = new Pass(renderer); this.sky = sky;
-    this.u = { ...sky.u, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uCamKm: { value: new THREE.Vector3() }, uSeed: { value: 0 }, uDiveSteps: { value: 56 }, uSatWide: { value: null }, uSatCore: { value: null } };
+    this.u = { ...sky.u, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uCamKm: { value: new THREE.Vector3() }, uSeed: { value: 0 }, uDiveSteps: { value: 56 }, uSatWide: { value: null }, uSatCore: { value: null }, uPhoto: { value: 1 }, uKeyUp: { value: 1 } };
     this.mat = fsMat(FS, this.u);
     this.blit = fsMat(BLIT, { uTex: { value: null } });
     this.rt = null; this.scale = 0.5;

@@ -14,7 +14,8 @@ import satCore from './sat/core.jpg';
 import satCov from './sat/cov.jpg';
 import satMeta from './sat/meta.json';
 import K from './katrina.js';
-import { prepareTrack, stormAt, seaAt, windAt, precipAt, eyeRadius, sunPosition, KT, NM } from './storm.js';
+import { prepareTrack, stormAt, trackSpan, seaAt, windAt, precipAt, eyeRadius, sunPosition, KT, NM } from './storm.js';
+import { moonPosition, sunLux, moonLux, lstRad, airTrans, SUN_ZENITH_LUX, NIGHT_FLOOR_LUX } from './astro.js';
 
 const $ = (id) => document.getElementById(id);
 const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -42,7 +43,7 @@ ocean.u.uBoatOn.value = 1;
 const flashLight = new THREE.DirectionalLight(0xa8c8ff, 0); scene.add(flashLight); scene.add(flashLight.target);
 
 // ---- lightning: in-cloud flashes that light the rain and sea, with an occasional visible stroke ----
-const LT = { next: 5 + Math.random() * 6, t0: -1, strokes: [], I: 0, dir: new THREE.Vector4(0, 0.2, -1, 0), bolt: null, on: true };
+const LT = { next: 5 + Math.random() * 6, t0: -1, strokes: [], I: 0, dir: new THREE.Vector4(0, 0.2, -1, 0), bolt: null, on: true, gain: 1 };
 const boltMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(70, 85, 120), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side: THREE.DoubleSide });
 function makeBolt(x0, z0, top, dist) {
   const pts = [new THREE.Vector3(x0 + (Math.random() - 0.5) * 300, top, z0 + (Math.random() - 0.5) * 300), new THREE.Vector3(x0, 0, z0)];
@@ -77,40 +78,104 @@ function updateLightning(dt, t, zone, distC) {
     for (const [ts, a] of LT.strokes) if (tt >= ts) LT.I += a * Math.exp(-(tt - ts) / 0.045);
     if (tt > LT.dur) { LT.t0 = -1; if (LT.bolt) { scene.remove(LT.bolt); LT.bolt.geometry.dispose(); LT.bolt = null; } }
   }
-  LT.dir.w = LT.I; if (LT.bolt) { LT.bolt.visible = LT.I > 0.03; boltMat.opacity = Math.min(1, LT.I * 1.6); }
-  flashLight.intensity = LT.I * 1.6; flashLight.position.set(boat.x + LT.dir.x * 500, Math.max(LT.dir.y, 0.25) * 500, boat.z + LT.dir.z * 500); flashLight.target.position.set(boat.x, 0, boat.z);
-  ocean.u.uFlash.value = LT.I;
+  LT.dir.w = LT.I * LT.gain; if (LT.bolt) { LT.bolt.visible = LT.I > 0.03; boltMat.opacity = Math.min(1, LT.I * 1.6); }
+  flashLight.intensity = LT.I * 1.6 * LT.gain; flashLight.position.set(boat.x + LT.dir.x * 500, Math.max(LT.dir.y, 0.25) * 500, boat.z + LT.dir.z * 500); flashLight.target.position.set(boat.x, 0, boat.z);
+  ocean.u.uFlash.value = LT.I * LT.gain;
 }
 
-// ---- storm state (Katrina at peak, 2005-08-28 18:00 UTC) ----
+// ---- the clock and the storm state ----
+// Storm time runs only in the storm scene. The storm moves along its NOAA track and changes intensity;
+// waves, the boat and the clouds' own motion always run in real time.
 const track = prepareTrack(K);
-const T0 = Date.UTC(2005, 7, 28, 18);
-const st = stormAt(track, T0);
-{ // eye size from NOAA aircraft fixes near this time, when available
-  const near = K.eyes.filter(([t]) => Math.abs(Date.UTC(+t.slice(0, 4), +t.slice(4, 6) - 1, +t.slice(6, 8), +t.slice(8, 10), +(t.slice(10, 12) || 0)) - T0) < 2.5 * 3600e3);
-  st.eyeR = near.length ? (near.reduce((a, e) => a + (e[1] + e[2]) / 2, 0) / near.length / 2) * NM : eyeRadius(st);
-  st.eyeSrc = near.length ? `${near.length} aircraft fixes` : 'estimated';
+const [T_START, T_END] = trackSpan(track);
+const T0 = Date.UTC(2005, 7, 28, 18); // start: Katrina at peak in the Gulf (Stage 4 adds the path selector)
+const SPEEDS = [1, 10, 60, 600];
+const clock = { t: T0, si: 0, paused: false, follow: false }; // follow: carry the boat along with the storm (G)
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const eyeFix = K.eyes.map(([s, d1, d2]) => [Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +(s.slice(10, 12) || 0)), ((d1 + d2) / 4) * NM]);
+// Eye radius: NOAA aircraft fixes weighted by closeness in time (Gaussian, sigma 1.5 h, within 6 h),
+// blended into the estimate (0.62 x radius of maximum wind) as the fixes thin out.
+function eyeAt(s, time) {
+  let w = 0, r = 0, n = 0;
+  for (const [tf, rf] of eyeFix) { const dh = (tf - time) / 3600e3; if (Math.abs(dh) > 6) continue; const k = Math.exp(-0.5 * (dh / 1.5) ** 2); w += k; r += k * rf; if (Math.abs(dh) < 2.5) n++; }
+  const est = eyeRadius(s), a = Math.min(1, w);
+  s.eyeR = w > 0 ? (r / w) * a + est * (1 - a) : est;
+  s.eyeSrc = n ? `${n} aircraft fix${n > 1 ? 'es' : ''}` : w > 0.02 ? 'aircraft fixes, interpolated' : 'estimated';
 }
-const r64 = st.r64.reduce((a, b) => a + b, 0) / 4, cdoR = Math.max(st.rm * 3, r64 * 1.2), outerR = st.r34mean * 1.25;
+function stormNow(time) {
+  const s = stormAt(track, time); eyeAt(s, time);
+  const r64 = s.r64.reduce((a, b) => a + b, 0) / 4;
+  s.cdoR = Math.max(s.rm * 3, r64 * 1.2); s.outerR = s.r34mean * 1.25; s.motion = Math.atan2(s.u, s.v) * R2D;
+  return s;
+}
+let st = stormNow(clock.t);
+// World origin is pinned to a latitude/longitude (set on teleport); the storm centre is placed from its
+// track position every frame, so it travels its real path past the boat.
+const geo = { lat0: st.lat, lon0: st.lon, mLon: 111320 };
 const center = { x: 0, z: 0 }; // storm centre in world coords
+const placeStorm = () => { center.x = (st.lon - geo.lon0) * geo.mLon; center.z = -(st.lat - geo.lat0) * 111320; };
+const boatLatLon = () => [geo.lat0 - boat.z / 111320, geo.lon0 + boat.x / geo.mLon];
 const rel = () => ({ e: boat.x - center.x, n: -(boat.z - center.z) });
 let seaS = null;
 function teleport(brgDeg, r, headOff = 35) {
+  st = stormNow(clock.t);
   const b = (brgDeg * Math.PI) / 180, e = r * Math.sin(b), n = r * Math.cos(b);
-  boat.x = 0; boat.z = 0; center.x = -e; center.z = n;
+  boat.x = 0; boat.z = 0;
+  geo.lat0 = st.lat + n / 111320; geo.mLon = 111320 * Math.cos(geo.lat0 * D2R); geo.lon0 = st.lon + e / geo.mLon; placeStorm();
   const s = seaAt(st, e, n);
   boat.psi = ((s.wind.from + headOff) * Math.PI) / 180; boat.u = 3; boat.v = 0; boat.r = 0; boat.wake.length = 0; boat.roll = boat.pitch = 0; boat.vy = boat.vp = boat.vr = 0;
   seaS = { hs: s.hs, tp: s.tp, dx: s.de, dz: -s.dn, wx: s.we, wz: -s.wn, iso: s.iso }; sim.setSea(seaS); sim.setScale(sim.scaleFor(s.tp)); ocean.syncScale();
   chase.init = false; input.look.yaw = 0; sky.first = true; envAge = 1e9; post.ei = 0;
 }
 let envAge = 1e9;
-const motion = (Math.atan2(st.u, st.v) * 180) / Math.PI;
-const SPOTS = { Digit1: () => teleport(motion + 70, st.rm), Digit2: () => teleport(motion + 200, st.eyeR * 0.3, 90), Digit3: () => teleport(motion + 70, st.eyeR * 0.78, 180), Digit4: () => teleport(motion + 80, Math.max(cdoR * 1.25, 230e3)) };
-teleport(motion + 70, st.rm);
+const SPOTS = { Digit1: () => teleport(st.motion + 70, st.rm), Digit2: () => teleport(st.motion + 200, st.eyeR * 0.3, 90), Digit3: () => teleport(st.motion + 70, st.eyeR * 0.78, 180), Digit4: () => teleport(st.motion + 80, Math.max(st.cdoR * 1.25, 230e3)) };
+teleport(st.motion + 70, st.rm);
+
+// ---- light from the real sun and moon at the boat ----
+// Units: a sun irradiance of 20 is ~107,000 lux. Above L0 the scene renders exactly as before. Below it
+// (dusk, night) everything is pre-exposed by L0 / (natural light) so values stay in half-float range,
+// and post.js applies the eye's night response (darker, less colour). See HANDOFF.md, "Night".
+const L0 = 1000, LUX = 20 / SUN_ZENITH_LUX;
+const LV = { sunTrue: new THREE.Vector3(), moonDir: new THREE.Vector3(), moonCol: new THREE.Vector3(), eq: new THREE.Matrix3(), pix: 0.002, el: 0, az: 0, gain: 1, glow: 0, stars: 0, moonKey: false };
+const dirOf = (v, el, az) => v.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
+const sky$ = { sun: null, moon: null, lux: 0, pre: 1, sunStorm: 0 };
+function lighting(time) {
+  const [lat, lon] = boatLatLon();
+  const sp = sunPosition(time, lat, lon), mn = moonPosition(time, lat, lon);
+  const sunL = sunLux(sp.el * R2D), mL = moonLux(mn), lux = sunL + mL + NIGHT_FLOOR_LUX;
+  const pre = Math.max(1, L0 / lux);
+  // key light: the sun, until the moon outshines the twilight (or the sun is 15 deg down); then the moon
+  const moonKey = sp.el * R2D < -4 && (mL > sunL || sp.el * R2D < -15);
+  LV.moonKey = moonKey; LV.el = moonKey ? mn.el : sp.el; LV.az = moonKey ? mn.az : sp.az;
+  LV.gain = (moonKey ? mn.rel : 1) * pre;
+  dirOf(LV.sunTrue, sp.el, sp.az); dirOf(LV.moonDir, mn.el, mn.az);
+  LV.glow = 4.2e-8 * pre;                                 // airglow + starlight floor (~0.002 lux)
+  LV.stars = 2.54e-6 * LUX * pre;                         // a magnitude-0 star gives 2.54e-6 lux
+  // moon disc radiance (lit part), reddened and dimmed near the horizon; compressed at night so it
+  // reads as a bright disc with its phase visible instead of a blown-out blob
+  const tr = Sky.sunTrans(Math.max(mn.el, -0.02)), wb = Sky.sunTrans(1.3);
+  const phys = (SUN_ZENITH_LUX * 2.5e-6 * LUX / 6.45e-5) * pre * airTrans(mn.el) / Math.max(tr[0] / wb[0], 1e-3);
+  const ref = 12 * 20 * LV.gain * 0.25, mr = mn.el > -0.01 ? phys / (1 + phys / ref) : 0;
+  LV.moonCol.set(tr[0] / wb[0], tr[1] / wb[1], tr[2] / wb[2]).multiplyScalar(mr);
+  const L = lstRad(time, lon), sl = Math.sin(L), cl = Math.cos(L), sf = Math.sin(lat * D2R), cf = Math.cos(lat * D2R);
+  LV.eq.set(-sl, cl * cf, cl * sf, cl, sl * cf, sl * sf, 0, sf, -cf);
+  LV.pix = (camera.fov * D2R) / Math.max(post.h, 1);
+  sky.setLight(LV); post.pre = pre;
+  sky$.sun = sp; sky$.moon = mn; sky$.lux = lux; sky$.pre = pre;
+  sky$.sunStorm = sunPosition(time, st.lat, st.lon).el;
+  return pre;
+}
+// The bundled NASA photo is from one Terra pass on 28 Aug 2005 (the service gives the date only; the
+// morning pass over the Gulf is about 16:25 UTC). Use it only within 12 hours of that.
+const SAT_T = Date.UTC(2005, 7, 28, 16, 25);
+let satLoaded = false;
+const satOK = () => satLoaded && Math.abs(clock.t - SAT_T) < 12 * 3600e3;
 
 // ---- HUD ----
 const hud = $('hud'), help = $('help');
-help.innerHTML = '<b>W/S</b> or <b>↑/↓</b> throttle · <b>A/D</b> or <b>←/→</b> rudder · drag to look · gamepad supported<br><b>1</b> eyewall · <b>2</b> eye · <b>3</b> eye edge (drive into the wall) · <b>4</b> outer bands<br><b>H</b> readout · <b>N</b> map · <b>T</b> lightning · <b>L</b> lens droplets · <b>K</b> camera shake · <b>M</b> motion blur · <b>I</b> replay intro · <b>V</b> replay dive · <b>F</b> frame rate';
+help.innerHTML = '<b>W/S</b> or <b>↑/↓</b> throttle · <b>A/D</b> or <b>←/→</b> rudder · drag to look · gamepad supported<br><b>1</b> eyewall · <b>2</b> eye · <b>3</b> eye edge (drive into the wall) · <b>4</b> outer bands<br><b>[ ]</b> storm time slower / faster · <b>P</b> pause storm time · <b>G</b> keep pace with the storm<br><b>H</b> readout · <b>N</b> map · <b>T</b> lightning · <b>L</b> lens droplets · <b>K</b> camera shake · <b>M</b> motion blur · <b>I</b> replay intro · <b>V</b> replay dive · <b>F</b> frame rate';
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], p2 = (v) => String(v).padStart(2, '0');
+const fmtT = (t) => { const d = new Date(t); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} UTC`; };
 const card = (d) => ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'][Math.round(d / 22.5) % 16];
 let hudT = 0, gustPeak = 0;
 // ---- storm map (north up): wind bands by Saffir-Simpson category, eye, max-wind ring, boat ----
@@ -126,6 +191,13 @@ function drawMap() {
   mc.globalAlpha = 1; mc.fillStyle = '#0b1c2a'; mc.beginPath(); mc.arc(c, c, st.eyeR * k, 0, 7); mc.fill();
   mc.strokeStyle = '#cfe9ff'; mc.lineWidth = 2; mc.setLineDash([6, 5]); mc.beginPath(); mc.arc(c, c, st.eyeR * k, 0, 7); mc.stroke();
   mc.setLineDash([]); mc.strokeStyle = 'rgba(255,255,255,.55)'; mc.lineWidth = 1.5; mc.beginPath(); mc.arc(c, c, st.rm * k, 0, 7); mc.stroke();
+  // the NOAA track through the centre: travelled part solid, the rest dashed, dots at fixes
+  { const mL = 111320 * Math.cos(st.lat * D2R), P = track.map((p) => [c + (p.lon - st.lon) * mL * k, c - (p.lat - st.lat) * 111320 * k, p.time]);
+    mc.lineWidth = 2; mc.strokeStyle = 'rgba(207,233,255,.75)';
+    for (const past of [true, false]) { mc.setLineDash(past ? [] : [5, 5]); mc.beginPath(); let started = false;
+      for (let i = 0; i < P.length; i++) { const [x, y, tt] = P[i], on = past ? tt <= clock.t : tt >= clock.t; if (!on) continue; if (!started) { mc.moveTo(x, y); started = true; } else mc.lineTo(x, y); }
+      if (past) mc.lineTo(c, c); mc.stroke(); if (!past) { mc.beginPath(); mc.moveTo(c, c); const nx = P.find((q) => q[2] >= clock.t); if (nx) mc.lineTo(nx[0], nx[1]); mc.stroke(); } }
+    mc.setLineDash([]); mc.fillStyle = '#cfe9ff'; for (const [x, y] of P) { mc.beginPath(); mc.arc(x, y, 3, 0, 7); mc.fill(); } }
   const bx = c + r.e * k, by = c - r.n * k;
   mc.strokeStyle = 'rgba(255,255,255,.7)'; mc.setLineDash([3, 6]); mc.beginPath(); mc.moveTo(bx, by); mc.lineTo(c, c); mc.stroke(); mc.setLineDash([]);
   mc.translate(bx, by); mc.rotate(boat.psi); mc.fillStyle = '#fff'; mc.strokeStyle = '#04121d'; mc.lineWidth = 2.5; mc.beginPath(); mc.moveTo(0, -15); mc.lineTo(9, 11); mc.lineTo(0, 6); mc.lineTo(-9, 11); mc.closePath(); mc.stroke(); mc.fill();
@@ -140,10 +212,13 @@ function drawHud(s, w, gust) {
   const r = rel(), dist = Math.hypot(r.e, r.n), brg = ((Math.atan2(-r.e, -r.n) * 180) / Math.PI + 360) % 360;
   const row = (k, v) => `<div class="row"><span class="k">${k}</span><b>${v}</b></div>`;
   const hdg = ((boat.psi * 180) / Math.PI % 360 + 360) % 360;
-  hud.innerHTML = `<div class="hd"><span>Katrina · 28 Aug 2005 18:00 UTC</span><span class="cat">Cat ${st.cat}</span></div>` +
+  const catTxt = /^\d$/.test(st.cat) ? `Cat ${st.cat}` : st.cat === 'TS' ? 'Trop. storm' : 'Trop. dep.';
+  const sn = sky$.sun, mn = sky$.moon, sEl = sn ? sn.el * R2D : 0, mEl = mn ? mn.el * R2D : -90;
+  const skyTxt = sEl > 0 ? `Day · sun ${sEl.toFixed(0)}° up` : sEl > -12 ? `Twilight · sun ${(-sEl).toFixed(0)}° down` : mEl > 0 ? `Night · moon ${(mn.lit * 100).toFixed(0)}% lit, ${mEl.toFixed(0)}° up` : `Night · moon down`;
+  hud.innerHTML = `<div class="hd"><span>Katrina · ${fmtT(clock.t)}</span><span class="cat">${catTxt}</span></div>` +
     row('Wind', `${(w.speed / KT).toFixed(0)} kt from ${card(w.from)} (${w.from.toFixed(0)}°)`) + row('Gusts', `${(gust / KT).toFixed(0)} kt`) +
     row('Waves', `${s.hs.toFixed(1)} m (${(s.hs * 3.281).toFixed(0)} ft) · ${s.tp.toFixed(0)} s`) + row('Crests apart', `${(1.56 * s.tp * s.tp).toFixed(0)} m · tallest ~${(s.hs * 1.9 * 3.281).toFixed(0)} ft`) + row('Pressure', `${(w.p / 100).toFixed(0)} mb`) +
-    row('Storm centre', `${(dist / NM).toFixed(1)} nm ${card(brg)}`) + row('Storm peak', `${st.vmaxKt.toFixed(0)} kt · ${(st.pc / 100).toFixed(0)} mb`) +
+    row('Storm centre', `${(dist / NM).toFixed(1)} nm ${card(brg)}`) + row('Storm max wind', `${st.vmaxKt.toFixed(0)} kt · ${(st.pc / 100).toFixed(0)} mb`) + row('Sky', skyTxt) +
     row('Boat', `${(boat.speed / KT).toFixed(1)} kt · hdg ${hdg.toFixed(0)}°`);
 }
 
@@ -184,6 +259,10 @@ function frame(now) {
   const diving = mode === 'dive'; if (diving) { input.throttle = 0.35; input.rudder = 0; keys.length = 0; }
   post.fade = Math.min(1, post.fade + dt * 1.3);
   for (const code of keys) {
+    if (code === 'BracketRight') setSpeed(Math.min(SPEEDS.length - 1, clock.si + 1));
+    if (code === 'BracketLeft') setSpeed(Math.max(0, clock.si - 1));
+    if (code === 'KeyP') setPaused(!clock.paused);
+    if (code === 'KeyG') { clock.follow = !clock.follow; drawTimeBar(); }
     if (code === 'KeyI') { startIntro(); return; }
     if (code === 'KeyV') { startDive(); return; }
     if (SPOTS[code]) SPOTS[code]();
@@ -195,25 +274,41 @@ function frame(now) {
     if (code === 'KeyF') GOV.show = !GOV.show;
     if (code === 'KeyT') LT.on = !LT.on;
   }
+  // storm time
+  if (mode === 'storm' && !clock.paused) { clock.t = Math.min(T_END, clock.t + dt * 1000 * SPEEDS[clock.si]); if (clock.t >= T_END) setPaused(true); }
+  { const lat = st.lat, lon = st.lon; st = stormNow(clock.t);
+    if (clock.follow) { geo.lat0 += st.lat - lat; geo.lon0 += st.lon - lon; } }  // boat keeps its place relative to the storm
+  placeStorm();
   // local conditions from the reconstruction
   const r = rel(), s = seaAt(st, r.e, r.n), w = s.wind, rainHere = precipAt({ ...st, }, r.e, r.n);
   const k = 1 - Math.exp(-dt * 0.5), tgt = { hs: s.hs, tp: s.tp, dx: s.de, dz: -s.dn, wx: s.we, wz: -s.wn, iso: s.iso };
   for (const key in tgt) seaS[key] += (tgt[key] - seaS[key]) * k;
   { const m = Math.hypot(seaS.dx, seaS.dz) || 1; seaS.dx /= m; seaS.dz /= m; const m2 = Math.hypot(seaS.wx, seaS.wz) || 1; seaS.wx /= m2; seaS.wz /= m2; }
   sim.setSea(seaS);
+  // keep the dominant waves well resolved as the sea changes: re-size the wave tiles when they are off by
+  // more than 45%, under a short dissolve (the wave pattern itself changes at that moment)
+  if (!diving) { const ideal = sim.scaleFor(seaS.tp)[0], cur = sim.L[0]; if (ideal / cur > 1.45 || cur / ideal > 1.45) { post.holdFrame(); sim.setScale(sim.scaleFor(seaS.tp)); ocean.syncScale(); } }
   const gn = 0.5 * Math.sin(t * 0.31 + gphase) + 0.3 * Math.sin(t * 0.83 + 1.7 * gphase) + 0.2 * Math.sin(t * 2.1 + gphase * 0.3);
   const gf = 1 + 0.16 * gn, wsp = Math.max(w.speed, 0.5), wx = (w.e / wsp), wz = (-w.n / wsp), gust = w.speed * 1.2;
   ocean.setWind(wx, wz, w.speed * gf);
   const distC = Math.hypot(r.e, r.n);
   const rain = Math.min(1, sm(st.eyeR * 0.9, st.eyeR * 1.2, distC) * (1 - 0.7 * sm(st.rm * 1.6, st.rm * 4.5, distC)) + 0.6 * rainHere) * (0.8 + 0.25 * gn);
+  const outerR = st.outerR, cdoR = st.cdoR;
   const sunVis = 1 - sm(st.eyeR * 0.6, st.eyeR * 0.95, distC) + sm(outerR * 0.95, outerR * 1.3, distC);
   // sun + sky
-  const sp = sunPosition(T0, st.lat, st.lon); sky.setSun(sp.el, sp.az);
-  const su = sky.u; su.uEyeR.value = st.eyeR / 1e3; su.uRm.value = st.rm / 1e3; su.uCdoR.value = cdoR / 1e3; su.uOuterR.value = outerR / 1e3; su.uSpin.value = st.vmax / 1e3; su.uRain.value = 1;
+  const pre = lighting(clock.t);
+  const su = sky.u; su.uUseSat.value = satOK() ? 1 : 0;
+  dive.u.uKeyUp.value = sm(-0.1, 0.05, LV.el);
+  dive.u.uPhoto.value += ((satOK() && sky$.sunStorm > 3 * D2R ? 1 : 0) - dive.u.uPhoto.value) * Math.min(1, dt * 2); su.uEyeR.value = st.eyeR / 1e3; su.uRm.value = st.rm / 1e3; su.uCdoR.value = cdoR / 1e3; su.uOuterR.value = outerR / 1e3; su.uSpin.value = st.vmax / 1e3; su.uRain.value = 1;
   sun.color.setRGB(sky.sunGround.x, sky.sunGround.y, sky.sunGround.z); sun.intensity = sunVis;
   sun.position.set(boat.x, 0, boat.z).addScaledVector(sky.sunDir, 500); sun.target.position.set(boat.x, 0, boat.z);
   ocean.u.uSunE.value.copy(sky.sunGround).multiplyScalar(sunVis);
-  yacht.userData.wall.emissiveIntensity = 0.55 * (1 - sunVis);
+  // lit windows and navigation lights: brighter against the dark at night (perceptual compromise, not
+  // physical: a real lamp against moonlight would be thousands of times brighter)
+  const dayK = Math.min(1, sky$.lux / L0);
+  yacht.userData.wall.emissiveIntensity = 0.55 * (1 - sunVis * dayK) * Math.pow(pre, 0.2);
+  const navK = 2.2 * Math.pow(pre, 0.3); yacht.userData.nav.forEach((m) => m.material.color.copy(m.userData.base).multiplyScalar(navK));
+  LT.gain = Math.pow(pre, 0.18);  // flashes read brighter against the dark, without whiting out the frame
   yacht.userData.radar.rotation.y = t * 2.5;
   // simulate
   sim.update(t, dt);
@@ -240,7 +335,7 @@ function frame(now) {
   }
   spray.update(dt, vx * 0.75, vz * 0.75);
   spray.mat.uniforms.uScale.value = post.h / (2 * Math.tan((camera.fov * Math.PI) / 360));
-  spray.mat.uniforms.uPano.value = sky.pano.texture; spray.mat.uniforms.uCol.value.set(0.65, 0.78, 1).multiplyScalar(LT.I * 0.18);
+  spray.mat.uniforms.uPano.value = sky.pano.texture; spray.mat.uniforms.uCol.value.set(0.65, 0.78, 1).multiplyScalar(LT.I * 0.18 * LT.gain);
   // render inputs
   su.uCamRel.value.set((camera.position.x - center.x) / 1e3, Math.max(camera.position.y, 2) / 1e3, (camera.position.z - center.z) / 1e3);
   if (!diving || dv.alt < 2500) sky.update(t, diving && dv.alt < DIVE_SWITCH + 60 && !dv.synced); sky.syncCamera(camera); if (diving) dv.synced = dv.alt < DIVE_SWITCH + 60; else dv.synced = false;
@@ -255,7 +350,7 @@ function frame(now) {
   if (high) { env.fogExt = 0; env.spray = 0; env.rain = 0; env.key = 0.17 + 0.25 * sm(20e3, 300e3, dv.alt); env.adapt = 2.2; post.wet += (dv.inCloud * 0.85 - post.wet) * (1 - Math.exp(-dt * 3)); }
   else if (diving) env.adapt = 2.5;
   if (diving) { dive.u.uCamKm.value.copy(su.uCamRel.value); dive.u.uCamKm.value.y = camera.position.y / 1e3; }
-  post.render(scene, camera, t, dt, env, high ? (target) => dive.draw(target, camera, post.w, post.h, sky.u.uUseSat.value > 0.5 && dv.alt > 112e3) : null);
+  post.render(scene, camera, t, dt, env, high ? (target) => dive.draw(target, camera, post.w, post.h, dive.u.uPhoto.value > 0.5 && dv.alt > 112e3) : null);
   hudT -= dt; if (hudT <= 0) { hudT = 0.2; drawHud(s, w, gust); drawMap(); }
 }
 function resize() {
@@ -270,13 +365,14 @@ let mode = 'storm', it = 0, flashes = 0;
 const lerp = (a, b, k) => a + (b - a) * k;
 function startIntro() {
   mode = 'intro'; it = 0; flashes = 0; title.classList.remove('on'); $('skip').textContent = 'Skip intro'; shore.group.visible = true; yacht.visible = spray.mesh.visible = false; if (LT.bolt) LT.bolt.visible = false;
-  for (const id of ['hud', 'help', 'note', 'map']) $(id).classList.add('hide'); $('skip').style.display = 'block';
+  for (const id of ['hud', 'help', 'note', 'map', 'time']) $(id).classList.add('hide'); $('skip').style.display = 'block';
+  sky.resetLight(); post.pre = 1; LT.gain = 1; sky.u.uUseSat.value = 1;
   ocean.u.uShore.value = 1; ocean.u.uBoatOn.value = 0; sky.u.uMode.value = 1; sky.first = true; applyQuality(); post.fade = 0; post.wet = 0; LT.next = 1e9; LT.t0 = -1;
   shore.u.uWindDir.value.set(0.8, 0, 0.6).normalize(); seaS = { hs: 0.35, tp: 7, dx: 0.15, dz: 0.99, wx: 0.8, wz: 0.6, iso: 0.25 }; sim.setSea(seaS); sim.setScale(sim.scaleFor(8.5)); ocean.syncScale();
 }
 function startStorm() {
   mode = 'storm'; title.classList.remove('on'); shore.group.visible = false; yacht.visible = spray.mesh.visible = true;
-  for (const id of ['hud', 'help', 'note', 'map']) $(id).classList.remove('hide'); $('skip').style.display = 'none';
+  for (const id of ['hud', 'help', 'note', 'map', 'time']) $(id).classList.remove('hide'); $('skip').style.display = 'none';
   ocean.u.uShore.value = 0; ocean.u.uSurf.value = 0; ocean.u.uBoatOn.value = 1; const su = sky.u; su.uMode.value = 0; applyQuality(); su.uSkyCut.value = 1; sky.bgMat.uniforms.uLod.value = 0; env.rainGain = 0.3; su.uDark.value = 1; su.uRain.value = 1;
   LT.forceAz = undefined; LT.next = 5 + Math.random() * 5; post.fade = 0; SPOTS.Digit1();
 }
@@ -334,7 +430,7 @@ const KN = [[0, Math.log(1700)], [0.6, Math.log(17)], [0.76, Math.log(0.5)], [1,
 const lnAlt = (p) => { for (let i = 1; i < KN.length; i++) if (p <= KN[i][0]) { const f = (p - KN[i - 1][0]) / (KN[i][0] - KN[i - 1][0]); return lerp(KN[i - 1][1], KN[i][1], f); } return KN[KN.length - 1][1]; };
 function startDive() {
   startStorm(); mode = 'dive'; dv.t = 0; title.classList.remove('on');
-  for (const id of ['hud', 'help', 'note', 'map']) $(id).classList.add('hide'); $('skip').style.display = 'block'; $('skip').textContent = 'Skip';
+  for (const id of ['hud', 'help', 'note', 'map', 'time']) $(id).classList.add('hide'); $('skip').style.display = 'block'; $('skip').textContent = 'Skip';
   // begin high over the outer rain bands, outward from where the yacht is
   const out = v3.set(boat.x - center.x, 0, boat.z - center.z).normalize();
   dv.start.set(boat.x + out.x * 110e3 - out.z * 40e3, 0, boat.z + out.z * 110e3 + out.x * 40e3);
@@ -353,11 +449,11 @@ function diveCamera(dt) {
   camera.rotation.x += 0.006 * inCloud * Math.sin(t * 17.3); camera.rotation.y += 0.006 * inCloud * Math.sin(t * 13.9 + 1); camera.rotation.z += 0.01 * inCloud * Math.sin(t * 9.1);
   camera.fov = lerp(lerp(30, 40, sm(0.05, 0.5, p)), 48 + 9 * sm(3, 15, boat.speed), sm(0.8, 1, p)); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
   dv.alt = camera.position.y; dv.inCloud = inCloud;
-  if (p0 >= 1) { mode = 'storm'; for (const id of ['hud', 'help', 'note', 'map']) $(id).classList.remove('hide'); $('skip').style.display = 'none'; }
+  if (p0 >= 1) { mode = 'storm'; for (const id of ['hud', 'help', 'note', 'map', 'time']) $(id).classList.remove('hide'); $('skip').style.display = 'none'; }
 }
 // NASA MODIS (Terra) true-colour image of Katrina, 28 Aug 2005, via NASA Worldview Snapshots / GIBS
 { const L = new THREE.TextureLoader(), su = sky.u; let n = 0;
-  const done = () => { if (++n === 3) su.uUseSat.value = 1; };
+  const done = () => { if (++n === 3) { satLoaded = true; su.uUseSat.value = 1; } };
   const w = L.load(satWide, done), c = L.load(satCore, done), cv = L.load(satCov, done);
   for (const tx of [w, c]) { tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 8; tx.wrapS = tx.wrapT = THREE.ClampToEdgeWrapping; }
   cv.wrapS = cv.wrapT = THREE.ClampToEdgeWrapping; cv.minFilter = THREE.LinearFilter; cv.generateMipmaps = false;
@@ -366,6 +462,18 @@ function diveCamera(dt) {
   su.uSatW.value.set(W[0], W[1], W[2] - W[0], W[1] - W[3]); su.uSatC.value.set(C[0], C[1], C[2] - C[0], C[1] - C[3]); su.uSatEye.value.set(satMeta.eye[0], satMeta.eye[1]); }
 const DIVE_SWITCH = 430; // metres: below the cloud base the normal sea-level renderer takes over
 $('skip').addEventListener('click', startStorm);
+// ---- storm-time controls ----
+const timeBar = $('time');
+function setSpeed(i) { clock.si = i; if (clock.t >= T_END) clock.t = T_END; setPaused(false); }
+function setPaused(p) { clock.paused = p && true; drawTimeBar(); }
+function drawTimeBar() {
+  const end = clock.t >= T_END;
+  timeBar.innerHTML = `<span class="clk">${end ? 'End of NOAA track' : clock.paused ? 'Storm time paused' : 'Storm time'}</span>` +
+    `<button data-k="p" class="${clock.paused ? 'on' : ''}" title="P">❚❚</button>` + SPEEDS.map((v, i) => `<button data-k="${i}" class="${!clock.paused && clock.si === i ? 'on' : ''}">${v}×</button>`).join('') +
+    `<button data-k="g" class="${clock.follow ? 'on' : ''}" title="G: carry the boat along with the storm">Keep pace</button>`;
+}
+timeBar.addEventListener('click', (e) => { const k = e.target.dataset?.k; if (k === 'p') setPaused(!clock.paused); else if (k === 'g') { clock.follow = !clock.follow; drawTimeBar(); } else if (k != null) setSpeed(+k); });
+drawTimeBar();
 if (matchMedia('(prefers-reduced-motion: reduce)').matches || location.hash === '#storm') startStorm(); else startIntro();
-window.__ew = { dv, startDive, setDive: (v) => { dv.t = v; }, shore, setIntro: (v) => { it = v; }, startIntro, startStorm, LT, THREE, dbg, env, st, sim, sky, ocean, post, camera, boat, chase, teleport, SPOTS, input };
+window.__ew = { dv, startDive, setDive: (v) => { dv.t = v; }, shore, setIntro: (v) => { it = v; }, startIntro, startStorm, LT, THREE, dbg, env, get st() { return st; }, clock, setSpeed, setPaused, sky$, LV, geo, center, sim, sky, ocean, post, camera, boat, chase, teleport, SPOTS, input };
 requestAnimationFrame(frame);
