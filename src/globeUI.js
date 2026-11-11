@@ -94,6 +94,7 @@ export class GlobeUI {
       <div class="sec">Start point</div>
       <input type="range" id="gl-slide" min="0" max="1000" step="1">
       <div id="gl-pt"></div>
+      <p class="dim">${this.hooks.photo ? this.hooks.photo(s) : ''}</p>
       <button id="gl-go">Dive in</button>
       <p class="dim">Conditions are reconstructed from NOAA best-track measurements, not recorded.</p>`;
     $('gl-info').classList.remove('hide');

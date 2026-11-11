@@ -9,10 +9,7 @@ import { Boat, ChaseCam, Input } from './boat.js';
 import { Spray } from './particles.js';
 import { Shore, terrainJS } from './shore.js';
 import { Dive } from './dive.js';
-import satWide from './sat/wide.jpg';
-import satCore from './sat/core.jpg';
-import satCov from './sat/cov.jpg';
-import satMeta from './sat/meta.json';
+import SATIDX from './satindex.js';
 import ARCHIVE from './archive.js';
 import { Globe } from './globe.js';
 import { GlobeUI, pointAtTime } from './globeUI.js';
@@ -138,8 +135,8 @@ function teleport(brgDeg, r, headOff = 35) {
 let envAge = 1e9;
 const SPOTS = { Digit1: () => { const sp = seaSpot(st) || { brg: st.motion + 70, r: st.rm }; teleport(sp.brg, sp.r); }, Digit2: () => teleport(st.motion + 200, st.eyeR * 0.3, 90), Digit3: () => teleport(st.motion + 70, st.eyeR * 0.78, 180), Digit4: () => teleport(st.motion + 80, Math.max(st.cdoR * 1.25, 230e3)) };
 teleport(st.motion + 70, st.rm);
-// Where the yacht can start: the eyewall to the right of the motion if that is open water (NASA MODIS
-// water mask), else the nearest bearing round the wall, else further out. null: no open water nearby.
+// Where the yacht can start: the eyewall to the right of the motion if that is open sea (NASA MODIS water
+// mask, reduced to water connected to the world ocean), else the nearest bearing round the wall, else further out. null: no open water nearby.
 function seaSpot(s) {
   const wet = (brg, r) => { const b = brg * D2R, lat = s.lat + (r * Math.cos(b)) / 111320, lon = s.lon + (r * Math.sin(b)) / (111320 * Math.cos(lat * D2R)); return globe.isWater(lat, lon) !== false; };
   for (const k of [1, 1.4, 2, 3]) for (let d = 0; d <= 180; d += 30) for (const sg of d && d < 180 ? [1, -1] : [1]) { const brg = s.motion + 70 + sg * d; if (wet(brg, s.rm * k)) return { brg, r: s.rm * k, k }; }
@@ -180,11 +177,25 @@ function lighting(time) {
   sky$.sunStorm = sunPosition(time, st.lat, st.lon).el;
   return pre;
 }
-// The bundled NASA photo is from one Terra pass on 28 Aug 2005 (the service gives the date only; the
-// morning pass over the Gulf is about 16:25 UTC). Use it only within 12 hours of that.
-const SAT_T = Date.UTC(2005, 7, 28, 16, 25);
-let satLoaded = false;
-const satOK = () => satLoaded && cur.id === 'AL122005' && Math.abs(clock.t - SAT_T) < 12 * 3600e3;
+// NASA photo of the current storm, if the archive has one (tools/satlib.py: the daytime pass on its
+// peak day; the overpass minute is estimated from the satellite's orbit). Used within 12 h of the pass.
+const sat = { id: null, meta: null, ready: false };
+const satOK = () => sat.ready && sat.id === cur.id && Math.abs(clock.t - sat.meta.t) < 12 * 3600e3;
+function loadSat(id) {
+  if (sat.id === id) return; sat.id = id; sat.ready = false; sat.meta = SATIDX[id] || null;
+  if (!sat.meta) return;
+  const L = new THREE.TextureLoader(), su = sky.u, m = sat.meta, base = `sat/${id}/`; let n = 0;
+  const done = () => { if (++n === 3 && sat.id === id) {
+    for (const tx of [w, c]) { tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 8; tx.wrapS = tx.wrapT = THREE.ClampToEdgeWrapping; tx.needsUpdate = true; }
+    cv.wrapS = cv.wrapT = THREE.ClampToEdgeWrapping; cv.minFilter = THREE.LinearFilter; cv.generateMipmaps = false; cv.needsUpdate = true;
+    for (const [k, tx] of [['uSatWide', w], ['uSatCore', c]]) { dive.u[k].value?.dispose?.(); dive.u[k].value = tx; }
+    su.uCov.value?.dispose?.(); su.uCov.value = cv;
+    const W = m.wide, C = m.core;
+    su.uSatW.value.set(W[0], W[1], W[2] - W[0], W[1] - W[3]); su.uSatC.value.set(C[0], C[1], C[2] - C[0], C[1] - C[3]); su.uSatEye.value.set(m.eye[0], m.eye[1]);
+    sat.ready = true; if (mode === 'intro') su.uUseSat.value = id === 'AL122005' ? 1 : 0; } };
+  const fail = () => { if (sat.id === id) sat.meta = null; };
+  const w = L.load(base + 'wide.jpg', done, undefined, fail), c = L.load(base + 'core.jpg', done, undefined, fail), cv = L.load(base + 'cov.jpg', done, undefined, fail);
+}
 
 // ---- HUD ----
 const hud = $('hud'), help = $('help');
@@ -384,7 +395,7 @@ const lerp = (a, b, k) => a + (b - a) * k;
 function startIntro() {
   mode = 'intro'; it = 0; flashes = 0; title.classList.remove('on'); $('skip').textContent = 'Skip intro'; shore.group.visible = true; yacht.visible = spray.mesh.visible = false; if (LT.bolt) LT.bolt.visible = false;
   for (const id of ['hud', 'help', 'note', 'map', 'time']) $(id).classList.add('hide'); $('skip').style.display = 'block';
-  sky.resetLight(); post.pre = 1; LT.gain = 1; sky.u.uUseSat.value = 1;
+  sky.resetLight(); post.pre = 1; LT.gain = 1; loadSat('AL122005'); sky.u.uUseSat.value = sat.ready && sat.id === 'AL122005' ? 1 : 0; // the intro is Katrina's
   ocean.u.uShore.value = 1; ocean.u.uBoatOn.value = 0; sky.u.uMode.value = 1; sky.first = true; applyQuality(); post.fade = 0; post.wet = 0; LT.next = 1e9; LT.t0 = -1;
   shore.u.uWindDir.value.set(0.8, 0, 0.6).normalize(); seaS = { hs: 0.35, tp: 7, dx: 0.15, dz: 0.99, wx: 0.8, wz: 0.6, iso: 0.25 }; sim.setSea(seaS); sim.setScale(sim.scaleFor(8.5)); ocean.syncScale();
 }
@@ -469,15 +480,7 @@ function diveCamera(dt) {
   dv.alt = camera.position.y; dv.inCloud = inCloud;
   if (p0 >= 1) { mode = 'storm'; for (const id of ['hud', 'help', 'note', 'map', 'time']) $(id).classList.remove('hide'); $('skip').style.display = 'none'; }
 }
-// NASA MODIS (Terra) true-colour image of Katrina, 28 Aug 2005, via NASA Worldview Snapshots / GIBS
-{ const L = new THREE.TextureLoader(), su = sky.u; let n = 0;
-  const done = () => { if (++n === 3) { satLoaded = true; su.uUseSat.value = 1; } };
-  const w = L.load(satWide, done), c = L.load(satCore, done), cv = L.load(satCov, done);
-  for (const tx of [w, c]) { tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 8; tx.wrapS = tx.wrapT = THREE.ClampToEdgeWrapping; }
-  cv.wrapS = cv.wrapT = THREE.ClampToEdgeWrapping; cv.minFilter = THREE.LinearFilter; cv.generateMipmaps = false;
-  dive.u.uSatWide.value = w; dive.u.uSatCore.value = c; su.uCov.value = cv;
-  const W = satMeta.wide, C = satMeta.core;
-  su.uSatW.value.set(W[0], W[1], W[2] - W[0], W[1] - W[3]); su.uSatC.value.set(C[0], C[1], C[2] - C[0], C[1] - C[3]); su.uSatEye.value.set(satMeta.eye[0], satMeta.eye[1]); }
+loadSat(cur.id);
 const DIVE_SWITCH = 430; // metres: below the cloud base the normal sea-level renderer takes over
 $('skip').addEventListener('click', () => (mode === 'intro' ? startGlobe() : startStorm()));
 // ---- storm-time controls ----
@@ -500,18 +503,20 @@ const launchMsg = (s, p) => {
   const sp = seaSpot(q), over = globe.isWater(p.lat, p.lon) === false;
   if (!sp) return { ok: false, msg: 'Over land, with no open water near the centre. Pick a point at sea.' };
   if (sp.k > 1) return { ok: true, msg: `${over ? 'Centre over land' : 'Land near the eyewall'}: the yacht starts ${Math.round((sp.r / NM) / 5) * 5} nm out, on open water.` };
+  if (over) return { ok: true, msg: 'Centre over land. The yacht starts in the eyewall winds, on open water nearby.' };
   return { ok: true, msg: 'Open water. The yacht starts in the strongest winds, right of the storm’s motion.' };
 };
 let launching = null;
 const gui = new GlobeUI(globe, ARCHIVE, canvas, {
   check: launchMsg,
+  photo: (s) => { const m = SATIDX[s.id]; return m ? `NASA ${m.src.replace(' (hand-registered)', '')} photo from ${fmtT(m.t)} (pass time estimated). Shown from space and used for the cloud layout within 12 hours of it.` : 'No NASA photo bundled for this storm yet; clouds come from the storm model.'; },
   launch: (s, p) => { if (launching) return; launching = { s, p, t: 0 }; globe.flyTo(p.lat, p.lon, 1.32, 1.5); $('fade').classList.add('on'); },
 });
 function globeFrame(dt) {
   globe.frame(dt, gui.dragging);
   if (launching && (launching.t += dt) > 1.6) {
     const { s, p } = launching; launching = null;
-    setStorm(s); clock.t = p.t; clock.si = 0; clock.paused = false; st = stormNow(clock.t);
+    setStorm(s); loadSat(s.id); clock.t = p.t; clock.si = 0; clock.paused = false; st = stormNow(clock.t);
     gui.show(false); mode = 'storm'; resize(); startDive(); drawTimeBar();
     setTimeout(() => $('fade').classList.remove('on'), 50);
   }
@@ -524,5 +529,5 @@ function startGlobe() {
 }
 
 if (location.hash === '#storm') startStorm(); else if (location.hash === '#globe' || matchMedia('(prefers-reduced-motion: reduce)').matches) startGlobe(); else startIntro();
-window.__ew = { globe, gui, startGlobe, setStorm, ARCHIVE, get cur() { return cur; }, dv, startDive, setDive: (v) => { dv.t = v; }, shore, setIntro: (v) => { it = v; }, startIntro, startStorm, LT, THREE, dbg, env, get st() { return st; }, clock, setSpeed, setPaused, sky$, LV, geo, center, sim, sky, ocean, post, camera, boat, chase, teleport, SPOTS, input };
+window.__ew = { SATIDX, dive, globe, gui, startGlobe, setStorm, ARCHIVE, get cur() { return cur; }, dv, startDive, setDive: (v) => { dv.t = v; }, shore, setIntro: (v) => { it = v; }, startIntro, startStorm, LT, THREE, dbg, env, get st() { return st; }, clock, setSpeed, setPaused, sky$, LV, geo, center, sim, sky, ocean, post, camera, boat, chase, teleport, SPOTS, input };
 requestAnimationFrame(frame);

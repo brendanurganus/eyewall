@@ -7,7 +7,7 @@ import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import bmUrl from './assets/bluemarble.jpg';
-import waterUrl from './assets/water.png';   // NASA MODIS water mask, exact: used for the land check
+import waterUrl from './assets/water.png';   // NASA MODIS water mask, world ocean only (lakes = land): land check
 import coastUrl from './assets/coast.png';   // same, small lakes/rivers removed and softened: used for drawing
 
 const D2R = Math.PI / 180;
@@ -85,7 +85,7 @@ export class Globe {
     this.waterPx = null;
     const img = new Image(); img.onload = () => { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0); this.waterPx = { w: img.width, h: img.height, d: x.getImageData(0, 0, img.width, img.height).data }; }; img.src = waterUrl;
   }
-  // true where the NASA MODIS water mask shows water (ocean, and large lakes); null until loaded
+  // true over open sea (water connected to the world ocean); null until the mask has loaded
   isWater(lat, lon) {
     const m = this.waterPx; if (!m) return null;
     const x = Math.floor(((((lon + 180) % 360) + 360) % 360) / 360 * m.w), y = Math.floor((90 - lat) / 180 * m.h);

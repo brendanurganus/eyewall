@@ -20,14 +20,16 @@ This file says what exists, what is verified, what is not, and what is left.
 A single-page WebGL 2 app (three.js r160), bundled into one HTML file.
 
     npm install
-    node build.mjs            # -> dist/index.html (minified, images embedded)
+    node build.mjs            # -> dist/index.html (minified, globe images embedded)
+                              #    + dist/sat/<id>/ storm photos copied from ./satlib (see Stage 4)
     node build.mjs --dev      # unminified
 
 Published as a Claude artifact titled "Eyewall prototype: opening, dive and Katrina".
-Flow: shore opening (16.5 s) -> dive from space (11 s) -> drivable Katrina scene, starting at
-28 Aug 2005 18:00 UTC with storm time running (Stage 3).
+Flow: shore opening (16.5 s) -> globe and storm archive -> pick a storm and a point on its track ->
+dive from space (11 s) -> drivable storm scene at that time, storm time running. B returns to the globe.
+The artifact is multi-file: index.html plus sat/<id>/{wide,core,cov}.jpg, loaded on launch.
 
-URL hashes: `#storm` skips straight to the storm scene; `#low` is a cheap mode for software
+URL hashes: `#globe` opens on the globe; `#storm` skips straight to the Katrina storm scene; `#low` is a cheap mode for software
 renderers (used by the test harness).
 
 ### Source map (`src/`)
@@ -128,6 +130,42 @@ span that. The standard approach is used:
 7. **Stars are procedural** (realistic count by magnitude, fixed to the celestial sphere and rotating
    with sidereal time), not a real catalogue. No Milky Way.
 
+## Stage 4: globe, archive, path selector, human toll, photos (this stage)
+
+- **Archive** (`tools/archive.py` -> `src/archive.js`, 2.2 MB): all 793 finalised storms 2005-2025
+  (preliminary 2026 excluded, owner decision), columnar tracks with wind radii, RMW, POCI, eye fixes.
+  `main.js setStorm()` turns an entry into the track `stormAt()` expects; any storm can be launched.
+- **Globe** (`globe.js`): NASA Blue Marble Next Generation (GIBS, 4096x2048, embedded), graded dark and
+  cool; coastlines from the NASA MODIS water mask (lakes and rivers removed for drawing); graticule;
+  every track; selected track as fat lines with fix dots (bigger at landfall); own orbit controls and
+  CPU picking (screen-space distance to track segments). Renders straight to the canvas at full DPR.
+- **Track colours**: the long-standing Wikipedia track-map scheme (owner's choice; NHC has none).
+  Wikipedia has since moved to an accessibility scheme (Cat 4 pink, Cat 5 purple). Not used.
+- **Archive UI** (`globeUI.js`): year, basin, category and name filters; list; info panel with peak,
+  human toll, damage and the NOAA report link; start point by slider or by dragging along the track.
+  Default point: peak intensity.
+- **Launch**: the yacht starts in the eyewall right of the motion if that is open sea; otherwise the
+  nearest bearing round the wall, then 1.4/2/3 x RMW. No sea within 3 x RMW: launch disabled. Sea =
+  NASA MODIS water mask reduced to water connected to the world ocean (`src/assets/water.png`;
+  lakes count as land, tidal bays like Pontchartrain as sea). `node test/land.mjs` checks landfalls.
+- **Human toll** (`tools/toll.py` -> `src/toll.js`): from all 821 NHC/CPHC Tropical Cyclone Reports
+  (pdftotext; "Casualty and Damage Statistics" section; contents pages skipped). 306 storms
+  hand-checked (`tools/toll_review.txt`: deaths | damage | note), 446 automatically "none reported"
+  where the report says so (sample and flagged cases audited), 36 brief depression reports with no
+  deaths mentioned, 5 not compiled (2005-06 Central Pacific reports are on CPHC's site). Wording
+  follows the reports: direct/indirect where given, the agency behind each damage figure, revisions
+  (Katrina: nearly 1,400, revised from 1,800+). Crossover storms (Otto 2016, Bonnie/Julia 2022) use
+  their Atlantic report. The PDFs and extracted text are not in git (re-download: NHC tcr index).
+- **NASA photos** (`tools/satlib.py` -> `satlib/<id>/` not in git, ~70 MB; `tools/satindex.py` ->
+  `src/satindex.js`): one snapshot per major hurricane (174), the daytime pass on its peak day.
+  VIIRS from 2016 (GIBS VIIRS starts late 2015), MODIS Terra before with Aqua filling swath gaps.
+  Eye found in the 3.6-degree close-up (~0.3 km/px), accepted only if clearly darker than the ring
+  15-35 km out; else the photo is placed by the NOAA position (cloud-filled eyes). Katrina keeps the
+  hand-registered Stage 2 set. Used within 12 h of the (estimated) pass time; the dive shows it only
+  in daylight. Every other storm/time uses the analytic clouds.
+  Covering every hurricane-day would be ~1,500 snapshots (~800 MB): too big to ship in an artifact.
+  A hosted copy (GitHub Pages) can instead fetch GIBS live: GIBS sends `Access-Control-Allow-Origin: *`.
+
 ## Data (`data/`), from Stage 1
 
 - `eyewall_storms.csv`: 829 storms. `eyewall_track_points.csv`: 24,458 points.
@@ -190,9 +228,9 @@ GIBS acknowledgment text belongs on the methodology page.
    The space view was fixed by using the NASA photo; below ~110 km and at sea level the clouds are
    still the weak ones. The proper fix is a games-style volumetric renderer (layered Perlin-Worley
    noise, erosion, temporal accumulation). Not started.
-3. **Only Katrina has been run** (now across its whole track and day/night). Pacific storms untested.
-   Weak stages (TS/TD) still draw an eye in the clouds; there is no land, so the boat can sit "at sea"
-   over Louisiana after landfall, and no shallow-water waves. All night and dusk judgements so far are
+3. **Launch tested for Katrina, Ian, Patricia, Fiona, Henri; no errors.** Weak stages (TS/TD) still
+   draw an eye in the clouds. The storm scene has no land and no shallow-water waves: the yacht
+   starts at sea, but near a coast the sea state is still the deep-water model's. All night and dusk judgements so far are
    from software-renderer stills: motion and real-GPU colour are unseen.
 4. **No real breaking surf** in the shore opening. Foam lines and a rising waterline stand in.
 5. **Yacht is blocky up close; no shadows anywhere.**
@@ -204,7 +242,8 @@ GIBS acknowledgment text belongs on the methodology page.
 ## Controls (storm scene)
 
 W/S or up/down throttle, A/D or left/right rudder, drag to look, gamepad.
-[ ] storm time slower/faster (1x, 10x, 60x, 600x), P pause storm time, G keep pace with the storm.
+[ ] storm time slower/faster (1x, 10x, 60x, 600x), P pause storm time, G keep pace with the storm,
+B back to the globe. Globe: drag to turn, wheel to zoom, click a track, drag along the selected track.
 1 eyewall, 2 eye, 3 eye edge, 4 outer bands. H readout, N map, T lightning, L lens droplets,
 K shake, M motion blur, F fps counter, I replay intro, V replay dive. Space/Enter/Esc skips.
 
@@ -217,6 +256,8 @@ K shake, M motion blur, F fps counter, I replay intro, V replay dive. Space/Ente
     node test/timerun.mjs <ISO> <speed 0-3> <fixedDt> <secs> [spot]  # run storm time, log evolution
                                              # (FOLLOW=1 for keep-pace). Put dbg.cam off the yacht:
                                              # the boat sits at the origin.
+    node test/launch.mjs outDir "Name|year|peak or 0-1"...   # globe -> launch -> storm scene
+    node test/land.mjs                       # launch-point land check at landfall times
     HASH='#low' node test/shot.mjs out.png 800 450 15000 "<js before>" "<js to eval after>"
 
 `shot.mjs` drives headless Chrome with software GL. Useful hooks on `window.__ew`:
@@ -227,16 +268,11 @@ frozen test; that is a test artefact.
 ## What is left (the brief's build order, minus what is done)
 
 Done: Stage 1; Stage 2 (shore opening, Katrina scene); Stage 3 (storm time, speed controls,
-day/night, moon, stars); the dive from Stage 4; a basic readout, storm map with track, lightning,
-title and fps governor.
+day/night, moon, stars); Stage 4 (globe, archive, tracks, path selector, human toll, launch and dive,
+photos for majors); a basic readout, storm map with track, lightning, title and fps governor.
 
 Left:
-- **Stage 4:** globe (Blue Marble), archive, category-coloured tracks, path selector, info panels
-  with human toll and damage, launching the dive at the chosen point; the rest of the intro (rise
-  from the beach to space, tracks drawing in date order).
-  - Track palette: no official NHC per-category palette was found in Stage 1. The familiar
-    yellow-to-red scheme appears to be Wikipedia's. Unresolved; the map colours are provisional.
-  - Human toll: NOAA publishes it per storm in PDF reports, not as a table.
+- **Intro remainder** (brief Stage 6): rise from the beach to space, tracks drawing in date order.
 - **Stage 5:** live storms and scheduled refresh. NHC's `CurrentStorms.json` sends no CORS
   headers, so a GitHub Pages copy cannot fetch it directly either.
 - **Stage 6:** settings panel, phone version, methodology page, buoy comparison across storms and
