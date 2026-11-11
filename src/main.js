@@ -13,7 +13,9 @@ import satWide from './sat/wide.jpg';
 import satCore from './sat/core.jpg';
 import satCov from './sat/cov.jpg';
 import satMeta from './sat/meta.json';
-import K from './katrina.js';
+import ARCHIVE from './archive.js';
+import { Globe } from './globe.js';
+import { GlobeUI, pointAtTime } from './globeUI.js';
 import { prepareTrack, stormAt, trackSpan, seaAt, windAt, precipAt, eyeRadius, sunPosition, KT, NM } from './storm.js';
 import { moonPosition, sunLux, moonLux, lstRad, airTrans, SUN_ZENITH_LUX, NIGHT_FLOOR_LUX } from './astro.js';
 
@@ -86,13 +88,19 @@ function updateLightning(dt, t, zone, distC) {
 // ---- the clock and the storm state ----
 // Storm time runs only in the storm scene. The storm moves along its NOAA track and changes intensity;
 // waves, the boat and the clouds' own motion always run in real time.
-const track = prepareTrack(K);
-const [T_START, T_END] = trackSpan(track);
+// the current storm: any archive entry (columnar) -> the track object stormAt() expects
+const asTrack = (s) => ({ id: s.id, name: s.name, year: s.year, eyes: s.eyes, pts: s.t.map((t, i) => ({ t, lat: s.lat[i] / 10, lon: s.lon[i] / 10, vmax: s.v[i], pmin: s.p[i], r34: s.r34[i], r50: s.r50[i], r64: s.r64[i], rmw: s.rmw[i], poci: s.poci[i] })) });
+let cur, track, T_START, T_END, eyeFix;
+const tracks = new Map(); const trackOf = (s) => tracks.get(s.id) || tracks.set(s.id, prepareTrack(asTrack(s))).get(s.id);
+function setStorm(s) {
+  cur = s; track = trackOf(s); [T_START, T_END] = trackSpan(track);
+  eyeFix = s.eyes.map(([e, d1, d2]) => [Date.UTC(+e.slice(0, 4), +e.slice(4, 6) - 1, +e.slice(6, 8), +e.slice(8, 10), +(e.slice(10, 12) || 0)), ((d1 + d2) / 4) * NM]);
+}
+setStorm(ARCHIVE.find((s) => s.id === 'AL122005'));
 const T0 = Date.UTC(2005, 7, 28, 18); // start: Katrina at peak in the Gulf (Stage 4 adds the path selector)
 const SPEEDS = [1, 10, 60, 600];
 const clock = { t: T0, si: 0, paused: false, follow: false }; // follow: carry the boat along with the storm (G)
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
-const eyeFix = K.eyes.map(([s, d1, d2]) => [Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +(s.slice(10, 12) || 0)), ((d1 + d2) / 4) * NM]);
 // Eye radius: NOAA aircraft fixes weighted by closeness in time (Gaussian, sigma 1.5 h, within 6 h),
 // blended into the estimate (0.62 x radius of maximum wind) as the fixes thin out.
 function eyeAt(s, time) {
@@ -128,8 +136,15 @@ function teleport(brgDeg, r, headOff = 35) {
   chase.init = false; input.look.yaw = 0; sky.first = true; envAge = 1e9; post.ei = 0;
 }
 let envAge = 1e9;
-const SPOTS = { Digit1: () => teleport(st.motion + 70, st.rm), Digit2: () => teleport(st.motion + 200, st.eyeR * 0.3, 90), Digit3: () => teleport(st.motion + 70, st.eyeR * 0.78, 180), Digit4: () => teleport(st.motion + 80, Math.max(st.cdoR * 1.25, 230e3)) };
+const SPOTS = { Digit1: () => { const sp = seaSpot(st) || { brg: st.motion + 70, r: st.rm }; teleport(sp.brg, sp.r); }, Digit2: () => teleport(st.motion + 200, st.eyeR * 0.3, 90), Digit3: () => teleport(st.motion + 70, st.eyeR * 0.78, 180), Digit4: () => teleport(st.motion + 80, Math.max(st.cdoR * 1.25, 230e3)) };
 teleport(st.motion + 70, st.rm);
+// Where the yacht can start: the eyewall to the right of the motion if that is open water (NASA MODIS
+// water mask), else the nearest bearing round the wall, else further out. null: no open water nearby.
+function seaSpot(s) {
+  const wet = (brg, r) => { const b = brg * D2R, lat = s.lat + (r * Math.cos(b)) / 111320, lon = s.lon + (r * Math.sin(b)) / (111320 * Math.cos(lat * D2R)); return globe.isWater(lat, lon) !== false; };
+  for (const k of [1, 1.4, 2, 3]) for (let d = 0; d <= 180; d += 30) for (const sg of d && d < 180 ? [1, -1] : [1]) { const brg = s.motion + 70 + sg * d; if (wet(brg, s.rm * k)) return { brg, r: s.rm * k, k }; }
+  return null;
+}
 
 // ---- light from the real sun and moon at the boat ----
 // Units: a sun irradiance of 20 is ~107,000 lux. Above L0 the scene renders exactly as before. Below it
@@ -169,11 +184,11 @@ function lighting(time) {
 // morning pass over the Gulf is about 16:25 UTC). Use it only within 12 hours of that.
 const SAT_T = Date.UTC(2005, 7, 28, 16, 25);
 let satLoaded = false;
-const satOK = () => satLoaded && Math.abs(clock.t - SAT_T) < 12 * 3600e3;
+const satOK = () => satLoaded && cur.id === 'AL122005' && Math.abs(clock.t - SAT_T) < 12 * 3600e3;
 
 // ---- HUD ----
 const hud = $('hud'), help = $('help');
-help.innerHTML = '<b>W/S</b> or <b>↑/↓</b> throttle · <b>A/D</b> or <b>←/→</b> rudder · drag to look · gamepad supported<br><b>1</b> eyewall · <b>2</b> eye · <b>3</b> eye edge (drive into the wall) · <b>4</b> outer bands<br><b>[ ]</b> storm time slower / faster · <b>P</b> pause storm time · <b>G</b> keep pace with the storm<br><b>H</b> readout · <b>N</b> map · <b>T</b> lightning · <b>L</b> lens droplets · <b>K</b> camera shake · <b>M</b> motion blur · <b>I</b> replay intro · <b>V</b> replay dive · <b>F</b> frame rate';
+help.innerHTML = '<b>W/S</b> or <b>↑/↓</b> throttle · <b>A/D</b> or <b>←/→</b> rudder · drag to look · gamepad supported<br><b>1</b> eyewall · <b>2</b> eye · <b>3</b> eye edge (drive into the wall) · <b>4</b> outer bands<br><b>[ ]</b> storm time slower / faster · <b>P</b> pause storm time · <b>G</b> keep pace with the storm · <b>B</b> back to the globe<br><b>H</b> readout · <b>N</b> map · <b>T</b> lightning · <b>L</b> lens droplets · <b>K</b> camera shake · <b>M</b> motion blur · <b>I</b> replay intro · <b>V</b> replay dive · <b>F</b> frame rate';
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], p2 = (v) => String(v).padStart(2, '0');
 const fmtT = (t) => { const d = new Date(t); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} UTC`; };
 const card = (d) => ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'][Math.round(d / 22.5) % 16];
@@ -215,7 +230,7 @@ function drawHud(s, w, gust) {
   const catTxt = /^\d$/.test(st.cat) ? `Cat ${st.cat}` : st.cat === 'TS' ? 'Trop. storm' : 'Trop. dep.';
   const sn = sky$.sun, mn = sky$.moon, sEl = sn ? sn.el * R2D : 0, mEl = mn ? mn.el * R2D : -90;
   const skyTxt = sEl > 0 ? `Day · sun ${sEl.toFixed(0)}° up` : sEl > -12 ? `Twilight · sun ${(-sEl).toFixed(0)}° down` : mEl > 0 ? `Night · moon ${(mn.lit * 100).toFixed(0)}% lit, ${mEl.toFixed(0)}° up` : `Night · moon down`;
-  hud.innerHTML = `<div class="hd"><span>Katrina · ${fmtT(clock.t)}</span><span class="cat">${catTxt}</span></div>` +
+  hud.innerHTML = `<div class="hd"><span>${cur.name} · ${fmtT(clock.t)}</span><span class="cat">${catTxt}</span></div>` +
     row('Wind', `${(w.speed / KT).toFixed(0)} kt from ${card(w.from)} (${w.from.toFixed(0)}°)`) + row('Gusts', `${(gust / KT).toFixed(0)} kt`) +
     row('Waves', `${s.hs.toFixed(1)} m (${(s.hs * 3.281).toFixed(0)} ft) · ${s.tp.toFixed(0)} s`) + row('Crests apart', `${(1.56 * s.tp * s.tp).toFixed(0)} m · tallest ~${(s.hs * 1.9 * 3.281).toFixed(0)} ft`) + row('Pressure', `${(w.p / 100).toFixed(0)} mb`) +
     row('Storm centre', `${(dist / NM).toFixed(1)} nm ${card(brg)}`) + row('Storm max wind', `${st.vmaxKt.toFixed(0)} kt · ${(st.pc / 100).toFixed(0)} mb`) + row('Sky', skyTxt) +
@@ -252,9 +267,9 @@ const v3 = new THREE.Vector3(), tmp = [0, 0, 0];
 let t = 0, last = performance.now(), frameN = 0, gphase = Math.random() * 100;
 function frame(now) {
   requestAnimationFrame(frame);
-  const rawMs = now - last; let dt = Math.min(0.05, rawMs / 1000) || 0.016; last = now; govern(rawMs || 16, dt); if (dbg.fixedDt) dt = dbg.fixedDt; t += dt; frameN++;
+  const rawMs = now - last; let dt = Math.min(0.05, rawMs / 1000) || 0.016; last = now; if (mode === 'globe') { globeFrame(dt); return; } govern(rawMs || 16, dt); if (dbg.fixedDt) dt = dbg.fixedDt; t += dt; frameN++;
   const keys = input.update(dt);
-  if (mode !== 'storm' && keys.some((c) => c === 'Space' || c === 'Enter' || c === 'Escape')) startStorm();
+  if (mode !== 'storm' && keys.some((c) => c === 'Space' || c === 'Enter' || c === 'Escape')) { if (mode === 'intro') { startGlobe(); return; } startStorm(); }
   if (mode === 'intro') { introFrame(dt); return; }
   const diving = mode === 'dive'; if (diving) { input.throttle = 0.35; input.rudder = 0; keys.length = 0; }
   post.fade = Math.min(1, post.fade + dt * 1.3);
@@ -264,6 +279,7 @@ function frame(now) {
     if (code === 'KeyP') setPaused(!clock.paused);
     if (code === 'KeyG') { clock.follow = !clock.follow; drawTimeBar(); }
     if (code === 'KeyI') { startIntro(); return; }
+    if (code === 'KeyB' && !diving) { startGlobe(); return; }
     if (code === 'KeyV') { startDive(); return; }
     if (SPOTS[code]) SPOTS[code]();
     if (code === 'KeyH') hud.classList.toggle('hide');
@@ -354,7 +370,9 @@ function frame(now) {
   hudT -= dt; if (hudT <= 0) { hudT = 0.2; drawHud(s, w, gust); drawMap(); }
 }
 function resize() {
-  W = innerWidth; H = innerHeight; const w = Math.round(W * Q.scale), h = Math.round(H * Q.scale);
+  W = innerWidth; H = innerHeight;
+  if (mode === 'globe') { const gd = Math.min(window.devicePixelRatio || 1, 2); renderer.setSize(Math.round(W * gd), Math.round(H * gd), false); globe.resize(W, H, gd); return; }
+  const w = Math.round(W * Q.scale), h = Math.round(H * Q.scale);
   renderer.setSize(w, h, false); camera.aspect = W / H; camera.updateProjectionMatrix(); post.resize(w, h);
 }
 addEventListener('resize', resize);
@@ -421,7 +439,7 @@ function introFrame(dt) {
   post.fade = sm(0, 1.0, it) * (1 - sm(INTRO_T - 0.9, INTRO_T - 0.1, it));
   if (it > INTRO_T - 1.0) title.classList.remove('on');
   post.render(scene, camera, t, dt, env);
-  if (it > INTRO_T) startDive();
+  if (it > INTRO_T) startGlobe();
 }
 
 // ---- dive from space into the storm ----
@@ -461,7 +479,7 @@ function diveCamera(dt) {
   const W = satMeta.wide, C = satMeta.core;
   su.uSatW.value.set(W[0], W[1], W[2] - W[0], W[1] - W[3]); su.uSatC.value.set(C[0], C[1], C[2] - C[0], C[1] - C[3]); su.uSatEye.value.set(satMeta.eye[0], satMeta.eye[1]); }
 const DIVE_SWITCH = 430; // metres: below the cloud base the normal sea-level renderer takes over
-$('skip').addEventListener('click', startStorm);
+$('skip').addEventListener('click', () => (mode === 'intro' ? startGlobe() : startStorm()));
 // ---- storm-time controls ----
 const timeBar = $('time');
 function setSpeed(i) { clock.si = i; if (clock.t >= T_END) clock.t = T_END; setPaused(false); }
@@ -470,10 +488,41 @@ function drawTimeBar() {
   const end = clock.t >= T_END;
   timeBar.innerHTML = `<span class="clk">${end ? 'End of NOAA track' : clock.paused ? 'Storm time paused' : 'Storm time'}</span>` +
     `<button data-k="p" class="${clock.paused ? 'on' : ''}" title="P">❚❚</button>` + SPEEDS.map((v, i) => `<button data-k="${i}" class="${!clock.paused && clock.si === i ? 'on' : ''}">${v}×</button>`).join('') +
-    `<button data-k="g" class="${clock.follow ? 'on' : ''}" title="G: carry the boat along with the storm">Keep pace</button>`;
+    `<button data-k="g" class="${clock.follow ? 'on' : ''}" title="G: carry the boat along with the storm">Keep pace</button>` + `<button data-k="b" title="B">Globe</button>`;
 }
-timeBar.addEventListener('click', (e) => { const k = e.target.dataset?.k; if (k === 'p') setPaused(!clock.paused); else if (k === 'g') { clock.follow = !clock.follow; drawTimeBar(); } else if (k != null) setSpeed(+k); });
+timeBar.addEventListener('click', (e) => { const k = e.target.dataset?.k; if (k === 'b') startGlobe(); else if (k === 'p') setPaused(!clock.paused); else if (k === 'g') { clock.follow = !clock.follow; drawTimeBar(); } else if (k != null) setSpeed(+k); });
 drawTimeBar();
-if (matchMedia('(prefers-reduced-motion: reduce)').matches || location.hash === '#storm') startStorm(); else startIntro();
-window.__ew = { dv, startDive, setDive: (v) => { dv.t = v; }, shore, setIntro: (v) => { it = v; }, startIntro, startStorm, LT, THREE, dbg, env, get st() { return st; }, clock, setSpeed, setPaused, sky$, LV, geo, center, sim, sky, ocean, post, camera, boat, chase, teleport, SPOTS, input };
+
+// ---- the globe: archive, path selector, launch ----
+const globe = new Globe(renderer, ARCHIVE);
+const launchMsg = (s, p) => {
+  const q = stormAt(trackOf(s), p.t); q.motion = Math.atan2(q.u, q.v) * R2D;
+  const sp = seaSpot(q), over = globe.isWater(p.lat, p.lon) === false;
+  if (!sp) return { ok: false, msg: 'Over land, with no open water near the centre. Pick a point at sea.' };
+  if (sp.k > 1) return { ok: true, msg: `${over ? 'Centre over land' : 'Land near the eyewall'}: the yacht starts ${Math.round((sp.r / NM) / 5) * 5} nm out, on open water.` };
+  return { ok: true, msg: 'Open water. The yacht starts in the strongest winds, right of the storm’s motion.' };
+};
+let launching = null;
+const gui = new GlobeUI(globe, ARCHIVE, canvas, {
+  check: launchMsg,
+  launch: (s, p) => { if (launching) return; launching = { s, p, t: 0 }; globe.flyTo(p.lat, p.lon, 1.32, 1.5); $('fade').classList.add('on'); },
+});
+function globeFrame(dt) {
+  globe.frame(dt, gui.dragging);
+  if (launching && (launching.t += dt) > 1.6) {
+    const { s, p } = launching; launching = null;
+    setStorm(s); clock.t = p.t; clock.si = 0; clock.paused = false; st = stormNow(clock.t);
+    gui.show(false); mode = 'storm'; resize(); startDive(); drawTimeBar();
+    setTimeout(() => $('fade').classList.remove('on'), 50);
+  }
+}
+function startGlobe() {
+  mode = 'globe'; title.classList.remove('on'); $('skip').style.display = 'none';
+  for (const id of ['hud', 'help', 'note', 'map', 'time']) $(id).classList.add('hide');
+  canvas.style.cursor = 'grab'; resize(); gui.show(true);
+  gui.select(cur, pointAtTime(cur, clock.t));
+}
+
+if (location.hash === '#storm') startStorm(); else if (location.hash === '#globe' || matchMedia('(prefers-reduced-motion: reduce)').matches) startGlobe(); else startIntro();
+window.__ew = { globe, gui, startGlobe, setStorm, ARCHIVE, get cur() { return cur; }, dv, startDive, setDive: (v) => { dv.t = v; }, shore, setIntro: (v) => { it = v; }, startIntro, startStorm, LT, THREE, dbg, env, get st() { return st; }, clock, setSpeed, setPaused, sky$, LV, geo, center, sim, sky, ocean, post, camera, boat, chase, teleport, SPOTS, input };
 requestAnimationFrame(frame);

@@ -84,10 +84,10 @@ function fitStorm(s) {
   st.r34mean = st.r34.reduce((a, b) => a + b, 0) / 4 || st.rm * 6;
   st.cat = st.vmaxKt < 34 ? 'TD' : st.vmaxKt < 64 ? 'TS' : st.vmaxKt < 83 ? '1' : st.vmaxKt < 96 ? '2' : st.vmaxKt < 113 ? '3' : st.vmaxKt < 137 ? '4' : '5';
   // peak sea state (Young 1988). Coefficients checked against Young (2017, Atmosphere 8:194, eqs 5-7).
-  // The paper's fit covers Vmax 20-60 m/s and Vfm 0-12.5 m/s. Vmax is extrapolated up to 78 m/s here
-  // (Katrina at peak is 72 m/s); clamping at 60 would give 18.2 m instead of 22.0 m at peak. Owner decision.
+  // Inputs are clamped to the paper's fitted range, Vmax 20-60 m/s and Vfm 0-12.5 m/s (owner decision,
+  // Stage 3: no extrapolation; Katrina at peak gives 18.2 m instead of 22.0 m).
   // 0.93 converts NOAA's 1-minute wind to a ~10-minute mean (factor 1.08, Harper, as given in Young 2017).
-  const V = Math.min(78, Math.max(20, st.vmax * 0.93)), Vf = Math.min(12.5, st.vt);
+  const V = Math.min(60, Math.max(20, st.vmax * 0.93)), Vf = Math.min(12.5, st.vt);
   const Rp = Math.max(5e3, 22.5e3 * Math.log10(st.rm) - 70.8e3);
   const xr = -2.175e-3 * V * V + 1.506e-2 * V * Vf - 1.223e-1 * Vf * Vf + 2.19e-1 * V + 6.737e-1 * Vf + 7.98e-1;
   st.fetch = Math.max(2e4, xr * Rp);
