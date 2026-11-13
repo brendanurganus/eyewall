@@ -145,17 +145,20 @@ export function windAt(st, e, n) {
 }
 
 // Sea state at a point: significant wave height, peak period, propagation direction, directional spread.
+// Wave-field shape: radial fall-off and far-field swell, calibrated against NDBC buoys (tools/buoys.py,
+// test/buoycal.mjs; fitted on odd-year storms, checked on even-year storms). k scales Young's peak Hs.
+export const WAVE_CAL = { k: 1, a: 1, p: 1.5, b: 1.5, q: 1 }; // b: ambient sea not made by the storm (m), added in quadrature
 export function seaAt(st, e, n) {
   const r = Math.max(50, Math.hypot(e, n)), rr = r / st.rm;
   const w = windAt(st, e, n);
   // bearing relative to the right-forward quadrant of motion (where fetch is longest)
   const mot = Math.atan2(st.u, st.v), brg = Math.atan2(e, n);
   const rel = brg - (mot + 70 * D2R);
-  const scale = Math.max(3 * st.rm, 0.6 * st.r34mean);
-  const radial = rr < 1 ? 0.62 + 0.38 * Math.pow(rr, 1.5) : 1 / (1 + Math.pow((r - st.rm) / scale, 1.5));
-  const asymK = Math.min(0.35, 0.05 + 0.03 * st.vt) * Math.min(1, rr);
+  const scale = WAVE_CAL.a * Math.max(3 * st.rm, 0.6 * st.r34mean);
+  const radial = rr < 1 ? 0.62 + 0.38 * Math.pow(rr, 1.5) : 1 / (1 + Math.pow((r - st.rm) / scale, WAVE_CAL.p));
+  const asymK = Math.min(0.95, WAVE_CAL.q * Math.min(0.35, 0.05 + 0.03 * st.vt)) * Math.min(1, rr); // q: asymmetry strength
   const shape = radial * (1 - asymK * (0.5 - 0.5 * Math.cos(rel)));
-  const hs = Math.max(0.3, st.hsMax * shape);
+  const hs = Math.max(0.3, Math.hypot(WAVE_CAL.k * st.hsMax * shape, WAVE_CAL.b));
   const tp = Math.max(4, st.tpMax * Math.pow(shape, 0.35));
   // waves run with the local wind, turned ~25 deg outward; inside the eye seas are confused
   // Dominant waves: swell radiating out from the intense-wind region to the right of the centre

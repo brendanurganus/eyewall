@@ -237,10 +237,23 @@ GIBS acknowledgment text belongs on the methodology page.
   Hs law all match. Tp law (0.045 coefficient) agrees with JONSWAP within 1.5% and with the review's
   energy-frequency relation within ~5%. **Open: the fit covers Vmax 20-60 m/s; the code extrapolates
   to 78 m/s. Katrina at peak is 72 m/s: 22.0 m as coded vs 18.2 m if clamped. Owner decision.**
-- **Buoy check (one buoy, one storm):** NDBC 42040 in Katrina. Model vs observed Hs:
-  5.3/5.1 m (28th 12Z), 10.0/8.6 m (29th 00Z), 11.3/12.3 m (06Z), then the model peaks at
-  12.0 m where the buoy recorded 16.9 m (11Z). Period agrees: 14.1-14.4 s model vs 14.3 s observed.
-  So height is under-predicted at the peak on the right side; period is fine.
+- **Buoy comparison (Stage 6):** `tools/buoys.py` finds every archive hurricane fix within 200 km of
+  an NDBC-owned moored buoy (owner decision) and pulls the buoy's hourly record (36 h before to 24 h
+  after closest approach): 287 storm-buoy cases, 56 buoys, 105 storms (almost all Atlantic).
+  `node test/buoys.mjs` runs the app's model at each buoy; `tools/buoystats.py` -> `data/buoy_results.json`.
+  Pressure: bias -0.3 hPa, RMSE 4.7 hPa, r 0.89. Wind (model converted to the buoy's 8-min mean at its
+  anemometer height: x0.93 per Harper et al. 2010 and a log profile, z0 0.002 m): bias +1.2 m/s, RMSE
+  4.6, r 0.80; within 3 RMW +3.6 m/s (buoys under-read in extreme seas; the model may also be high).
+  Wave height (calibrated): bias +0.2 m, RMSE 1.74 m, r 0.73; near the core +1.4 m too high; far field
+  -0.3 m. Per-case peak: RMSE 2.9 m; for observed peaks >= 8 m the model is 0.6 m low and barely
+  correlated (r 0.16): it gets the scale of the biggest seas right, not each one. Period: bias -0.6 s,
+  RMSE 3.0 s, r 0.34 (weak). Katrina at 42040: 16.9 m observed vs 12.2 m modelled.
+- **Wave calibration:** `WAVE_CAL` in `storm.js`, fitted by `node test/buoycal.mjs` on odd-year
+  storms, checked on even-year storms. Scaling Young's peak down (best plain RMSE, k 0.7) shrank the
+  biggest seas by a third; penalising that pushed the fit the other way and got worse on held-out
+  storms. Kept: Young's peak, the fall-off and asymmetry unchanged, plus a 1.5 m ambient sea added in
+  quadrature (held-out RMSE 1.75 -> 1.62 m, big-sea bias -0.35 -> -0.23 m; near-core bias +1.30 ->
+  +1.48 m, the cost). 2 m scored within 0.5% on the fitting set; 1.5 m has the smaller mean bias.
 - **Wave direction:** dominant waves radiate from the intense-wind region right of the centre and
   components above ~3x peak frequency follow the local wind (Young 2006).
 - **Foam:** whitecaps level off, streaks take over, whiteout by ~40 m/s (Holthuijsen, Powell &
