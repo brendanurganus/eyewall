@@ -10,4 +10,9 @@ const cp = (from, to) => { fs.mkdirSync(to, { recursive: true }); for (const f o
 let n = 0;
 if (fs.existsSync(SATLIB)) for (const id of fs.readdirSync(SATLIB)) if (fs.existsSync(`${SATLIB}/${id}/meta.json`)) { cp(`${SATLIB}/${id}`, `dist/sat/${id}`); n++; }
 cp('src/sat', 'dist/sat/AL122005');
+// live storms: live_demo.json (labelled replay) always; live.json from LIVE (tools/live.py output) or an
+// empty placeholder that says the feed is not set up. The scheduled refresh republishes live.json alone.
+fs.copyFileSync('src/live_demo.json', 'dist/live_demo.json');
+fs.mkdirSync('dist/tools', { recursive: true }); fs.copyFileSync('tools/live.py', 'dist/tools/live.txt'); // read by the scheduled refresh
+if (process.env.LIVE) fs.copyFileSync(process.env.LIVE, 'dist/live.json'); else fs.writeFileSync('dist/live.json', JSON.stringify({ checked: null, storms: [] }));
 console.log('built', (html.length / 1024).toFixed(0), 'KB;', n, 'storm photo sets + Katrina');

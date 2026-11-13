@@ -90,7 +90,9 @@ const asTrack = (s) => ({ id: s.id, name: s.name, year: s.year, eyes: s.eyes, pt
 let cur, track, T_START, T_END, eyeFix;
 const tracks = new Map(); const trackOf = (s) => tracks.get(s.id) || tracks.set(s.id, prepareTrack(asTrack(s))).get(s.id);
 function setStorm(s) {
-  cur = s; track = trackOf(s); [T_START, T_END] = trackSpan(track);
+  cur = s;
+  const n = document.getElementById('note');
+  if (n) n.textContent = s.live ? `Live storm${s.live.demo ? ' (demo replay)' : ''}: reconstructed from NHC's preliminary operational best track up to the latest fix, with parametric wind and wave models. Not recordings, and not for safety decisions.` : 'Conditions are reconstructed from NOAA best-track measurements with parametric wind and wave models. They are not recordings.'; track = trackOf(s); [T_START, T_END] = trackSpan(track);
   eyeFix = s.eyes.map(([e, d1, d2]) => [Date.UTC(+e.slice(0, 4), +e.slice(4, 6) - 1, +e.slice(6, 8), +e.slice(8, 10), +(e.slice(10, 12) || 0)), ((d1 + d2) / 4) * NM]);
 }
 setStorm(ARCHIVE.find((s) => s.id === 'AL122005'));
@@ -498,7 +500,7 @@ function setSpeed(i) { clock.si = i; if (clock.t >= T_END) clock.t = T_END; setP
 function setPaused(p) { clock.paused = p && true; drawTimeBar(); }
 function drawTimeBar() {
   const end = clock.t >= T_END;
-  timeBar.innerHTML = `<span class="clk">${end ? 'End of NOAA track' : clock.paused ? 'Storm time paused' : 'Storm time'}</span>` +
+  timeBar.innerHTML = `<span class="clk">${end ? (cur.live ? 'Latest NHC fix' : 'End of NOAA track') : clock.paused ? 'Storm time paused' : 'Storm time'}</span>` +
     `<button data-k="p" class="${clock.paused ? 'on' : ''}" title="P">❚❚</button>` + SPEEDS.map((v, i) => `<button data-k="${i}" class="${!clock.paused && clock.si === i ? 'on' : ''}">${v}×</button>`).join('') +
     `<button data-k="g" class="${clock.follow ? 'on' : ''}" title="G: carry the boat along with the storm">Keep pace</button>` + `<button data-k="b" title="B">Globe</button>`;
 }
@@ -521,6 +523,13 @@ const gui = new GlobeUI(globe, ARCHIVE, canvas, {
   photo: (s) => { const m = SATIDX[s.id]; return m ? `NASA ${m.src.replace(' (hand-registered)', '')} photo from ${fmtT(m.t)} (pass time estimated). Shown from space and used for the cloud layout within 12 hours of it.` : 'No NASA photo bundled for this storm yet; clouds come from the storm model.'; },
   launch: (s, p) => { if (launching) return; launching = { s, p, t: 0 }; globe.flyTo(p.lat, p.lon, 1.32, 1.5); $('fade').classList.add('on'); },
 });
+// live storms: live.json sits next to index.html and is replaced by the scheduled refresh; #livedemo loads
+// a labelled replay of one archived advisory instead, so the feature can be seen when nothing is active
+const LIVE_DEMO = location.hash === '#livedemo';
+fetch(`${LIVE_DEMO ? 'live_demo.json' : 'live.json'}?t=${Date.now()}`, { cache: 'no-store' })
+  .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+  .then((doc) => { globe.setLive(doc.storms || []); gui.setLive(doc); if (mode === 'globe' && gui.live.length && !gui.touched) gui.select(gui.live[0], null, true); })
+  .catch((e) => { console.warn('live data', e); gui.setLive({ error: String(e) }); });
 function globeFrame(dt) {
   globe.frame(dt, gui.dragging);
   if (launching && (launching.t += dt) > 1.6) {
@@ -534,9 +543,10 @@ function startGlobe() {
   mode = 'globe'; title.classList.remove('on'); $('skip').style.display = 'none';
   for (const id of ['hud', 'help', 'note', 'map', 'time']) $(id).classList.add('hide');
   canvas.style.cursor = 'grab'; resize(); gui.show(true);
-  gui.select(cur, pointAtTime(cur, clock.t));
+  if (gui.live.length && !gui.touched && !cur.live) gui.select(gui.live[0], null, true);
+  else gui.select(cur, pointAtTime(cur, clock.t));
 }
 
-if (location.hash === '#storm') startStorm(); else if (location.hash === '#globe' || matchMedia('(prefers-reduced-motion: reduce)').matches) startGlobe(); else startIntro();
+if (location.hash === '#storm') startStorm(); else if (location.hash === '#globe' || LIVE_DEMO || matchMedia('(prefers-reduced-motion: reduce)').matches) startGlobe(); else startIntro();
 window.__ew = { SATIDX, dive, globe, gui, startGlobe, setStorm, ARCHIVE, get cur() { return cur; }, dv, startDive, setDive: (v) => { dv.t = v; }, shore, setIntro: (v) => { it = v; }, startIntro, startStorm, LT, THREE, dbg, env, get st() { return st; }, clock, setSpeed, setPaused, sky$, LV, geo, center, sim, sky, ocean, post, camera, boat, chase, teleport, SPOTS, input };
 requestAnimationFrame(frame);

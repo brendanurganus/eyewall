@@ -81,6 +81,15 @@ export class Globe {
     this.ring.visible = false; this.ring.renderOrder = 10; this.scene.add(this.ring);
     this.visible = storms.map(() => true);
     this.buildAll();
+    this.live = []; this.liveGrp = new THREE.Group(); this.scene.add(this.liveGrp);
+    this.liveMat = new LineMaterial({ vertexColors: true, linewidth: 2.6, transparent: true, depthWrite: false });
+    this.fcMat = new LineMaterial({ color: 0xffffff, linewidth: 1.8, dashed: true, dashSize: 0.012, gapSize: 0.008, transparent: true, opacity: 0.9, depthWrite: false });
+    this.coneLine = new LineMaterial({ color: 0xffffff, linewidth: 1.2, transparent: true, opacity: 0.55, depthWrite: false });
+    this.pulseMat = new THREE.ShaderMaterial({ vertexShader: `uniform float uDpr; void main(){ gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); gl_PointSize = 44.*uDpr; }`,
+      fragmentShader: `uniform float uT; void main(){ vec2 q = gl_PointCoord*2. - 1.; float r = length(q); float ph = fract(uT*0.6);
+        float a = smoothstep(0.24, 0.16, r) + smoothstep(0.09, 0.0, abs(r - (0.2 + 0.75*ph)))*(1. - ph)*0.9;
+        if (a < 0.01) discard; gl_FragColor = vec4(mix(vec3(1.), vec3(1., 0.38, 0.27), smoothstep(0.1, 0.3, r)), a); }`,
+      uniforms: { uT: this.ringMat.uniforms.uT, uDpr: this.dotMat.uniforms.uDpr }, transparent: true, depthWrite: false });
     // the land mask, read on the CPU for "is this point at sea"
     this.waterPx = null;
     const img = new Image(); img.onload = () => { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0); this.waterPx = { w: img.width, h: img.height, d: x.getImageData(0, 0, img.width, img.height).data }; }; img.src = waterUrl;
@@ -138,9 +147,9 @@ export class Globe {
     const scr = (p) => { v.copy(p).project(cam); return [(v.x * 0.5 + 0.5) * W, (-v.y * 0.5 + 0.5) * H]; };
     const front = (p) => p.dot(cp) / cl > 1 / cl + 0.02;
     let best = null, bd = onlySel ? 22 : 12;
-    const list = onlySel ? [this.selected] : this.storms;
+    const list = onlySel ? [this.selected] : this.live.concat(this.storms);
     list.forEach((s, j) => {
-      if (!s || (!onlySel && !this.visible[j])) return;
+      if (!s || (!onlySel && !s.live && !this.visible[j - this.live.length])) return;
       const P = this.ptsOf(s);
       let prev = null;
       for (let i = 0; i < P.length; i++) {
@@ -157,11 +166,42 @@ export class Globe {
     });
     return best;
   }
+  // live storms: observed track (category colours), NHC forecast track (dashed), cone of uncertainty and a
+  // pulsing marker at the latest advisory position. Drawn whatever the archive filters say.
+  setLive(list) {
+    for (const o of [...this.liveGrp.children]) { this.liveGrp.remove(o); o.geometry.dispose(); }
+    this.live = list;
+    for (const s of list) {
+      if (s.t.length > 1) this.liveGrp.add(this.fat(s, this.liveMat));
+      const L = s.live, R = 1.0045;
+      const fc = [[L.lat, L.lon], ...L.fc.filter((f) => f.tau > 0).map((f) => [f.lat, f.lon])];
+      if (fc.length > 1) {
+        const pos = []; for (let i = 0; i < fc.length - 1; i++) { const a = xyz(...fc[i], R), b = xyz(...fc[i + 1], R), n = Math.max(1, Math.ceil(a.distanceTo(b) / 0.01)); for (let k = 0; k < n; k++) { const q = a.clone().lerp(b, k / n).setLength(R); pos.push(q.x, q.y, q.z); } }
+        const e = xyz(...fc[fc.length - 1], R); pos.push(e.x, e.y, e.z);
+        const g = new LineGeometry(); g.setPositions(pos); const l = new Line2(g, this.fcMat); l.computeLineDistances(); l.renderOrder = 6; this.liveGrp.add(l);
+        const dp = [], dc = [], ds = [];
+        L.fc.filter((f) => f.tau > 0).forEach((f) => { const q = xyz(f.lat, f.lon, R * 1.001), c = COLS[catOf(f.v)]; dp.push(q.x, q.y, q.z); dc.push(c.r, c.g, c.b); ds.push(6); });
+        const dg = new THREE.BufferGeometry(); dg.setAttribute('position', new THREE.Float32BufferAttribute(dp, 3)); dg.setAttribute('color', new THREE.Float32BufferAttribute(dc, 3)); dg.setAttribute('size', new THREE.Float32BufferAttribute(ds, 1));
+        const d = new THREE.Points(dg, this.dotMat); d.renderOrder = 7; this.liveGrp.add(d);
+      }
+      if (L.cone.length > 3) { // fill: triangulated in lon/lat (longitudes unwrapped), drawn on the sphere
+        let lon0 = L.cone[0][0]; const ring = L.cone.map(([lo, la]) => { let x = lo; while (x - lon0 > 180) x -= 360; while (x - lon0 < -180) x += 360; lon0 = x; return new THREE.Vector2(x, la); });
+        const tri = THREE.ShapeUtils.triangulateShape(ring, []), pos = [];
+        for (const t of tri) for (const k of t) { const q = xyz(ring[k].y, ring[k].x, 1.0025); pos.push(q.x, q.y, q.z); }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.13, depthWrite: false, side: THREE.DoubleSide })); m.renderOrder = 3; this.liveGrp.add(m);
+        const op = []; for (const v of [...ring, ring[0]]) { const q = xyz(v.y, v.x, 1.003); op.push(q.x, q.y, q.z); }
+        const og = new LineGeometry(); og.setPositions(op); const ol = new Line2(og, this.coneLine); ol.renderOrder = 3; this.liveGrp.add(ol);
+      }
+      const pg = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(xyz(L.lat, L.lon, 1.007).toArray(), 3));
+      const pm = new THREE.Points(pg, this.pulseMat); pm.renderOrder = 9; this.liveGrp.add(pm);
+    }
+  }
   flyTo(lat, lon, dist, dur = 1.4) { const v = this.view; this.fly = { t: 0, dur, from: [v.lat, v.lon, v.dist], to: [lat, lon, dist ?? v.dist] }; }
   // pointer controls (called by the UI layer)
   drag(dx, dy) { const v = this.view, k = 0.12 * (v.dist - 1); v.vLon = -dx * k; v.vLat = dy * k; v.lon += v.vLon; v.lat = Math.max(-80, Math.min(80, v.lat + v.vLat)); this.fly = null; }
   zoom(f) { const v = this.view; v.dist = Math.max(1.25, Math.min(7, 1 + (v.dist - 1) * f)); this.fly = null; }
-  resize(w, h, dpr) { this.W = w; this.H = h; this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); for (const m of [this.selMat, this.hovMat]) m.resolution.set(w * dpr, h * dpr); this.dotMat.uniforms.uDpr.value = dpr; }
+  resize(w, h, dpr) { this.W = w; this.H = h; this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); for (const m of [this.selMat, this.hovMat, this.liveMat, this.fcMat, this.coneLine]) m.resolution.set(w * dpr, h * dpr); this.dotMat.uniforms.uDpr.value = dpr; }
   frame(dt, dragging) {
     this.t += dt; const v = this.view;
     if (this.fly) {

@@ -10,7 +10,10 @@ export const tOf = (s) => Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(
 const p2 = (v) => String(v).padStart(2, '0');
 const fmtT = (t) => { const d = new Date(t); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${d.getUTCFullYear()} · ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} UTC`; };
 const catName = (c) => (c === 'TD' ? 'Tropical depression' : c === 'TS' ? 'Tropical storm' : `Category ${c} hurricane`);
-export const title = (s) => (s.cat === 'TD' ? `Tropical Depression ${s.name}` : s.cat === 'TS' ? `Tropical Storm ${s.name}` : `Hurricane ${s.name}`);
+const CLS = { HU: 'Hurricane', TS: 'Tropical Storm', TD: 'Tropical Depression', STS: 'Subtropical Storm', SD: 'Subtropical Depression', PTC: 'Potential Tropical Cyclone', PC: 'Post-Tropical Cyclone', RL: 'Remnants of' };
+const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+const ago = (t) => { const h = (Date.now() - t) / 3600e3; return h < 1 ? `${Math.max(1, Math.round(h * 60))} min ago` : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} days ago`; };
+export const title = (s) => s.live ? `${CLS[s.live.cls] || s.live.cls} ${s.name}` : (s.cat === 'TD' ? `Tropical Depression ${s.name}` : s.cat === 'TS' ? `Tropical Storm ${s.name}` : `Hurricane ${s.name}`);
 const span = (s) => {
   const a = new Date(tOf(s.t[0])), b = new Date(tOf(s.t[s.t.length - 1]));
   return a.getUTCMonth() === b.getUTCMonth() ? `${a.getUTCDate()}–${b.getUTCDate()} ${MON[b.getUTCMonth()]} ${b.getUTCFullYear()}` : `${a.getUTCDate()} ${MON[a.getUTCMonth()]} – ${b.getUTCDate()} ${MON[b.getUTCMonth()]} ${b.getUTCFullYear()}`;
@@ -40,13 +43,15 @@ export class GlobeUI {
       <input id="gl-q" placeholder="Search name" autocomplete="off"></div>
       <div class="gf" id="gl-basins">${Object.entries(BASIN).map(([k, v]) => `<button data-b="${k}" class="on">${v}</button>`).join('')}</div>
       <div class="gf" id="gl-cats">${['TD', 'TS', '1', '3'].map((c) => `<button data-c="${c}" class="${c === 'TD' ? 'on' : ''}">${c === 'TD' ? 'All' : c === 'TS' ? 'Named' : c === '1' ? 'Hurricanes' : 'Major'}</button>`).join('')}</div>
-      <div id="gl-count"></div><div id="gl-list"></div>`;
+      <div id="gl-live"></div><div id="gl-count"></div><div id="gl-list"></div>`;
     $('gl-legend').innerHTML = ['TD', 'TS', '1', '2', '3', '4', '5'].map((c) => `<span>${chip(c)}${c === 'TD' ? 'Depression' : c === 'TS' ? 'Trop. storm' : 'Cat ' + c}</span>`).join('') +
       '<em>Track colours: Wikipedia track-map scheme (NHC has no colour standard)</em>';
     $('gl-year').onchange = (e) => { this.f.year = e.target.value; this.apply(); };
     $('gl-q').oninput = (e) => { this.f.q = e.target.value.trim().toLowerCase(); this.apply(); };
     $('gl-basins').onclick = (e) => { const b = e.target.dataset.b; if (!b) return; const S = this.f.basins; S.has(b) ? S.delete(b) : S.add(b); if (!S.size) S.add(b); this.apply(); };
     $('gl-cats').onclick = (e) => { const c = e.target.dataset.c; if (!c) return; this.f.minCat = c; this.apply(); };
+    $('gl-live').onclick = (e) => { if (e.target.dataset.reload != null) { setTimeout(() => location.reload()); return; } const r = e.target.closest('[data-l]'); if (r) this.select(this.live[+r.dataset.l], null, true); };
+    this.live = []; this.liveDoc = null;
     $('gl-list').onclick = (e) => { const r = e.target.closest('[data-i]'); if (r) this.select(this.storms[+r.dataset.i], null, true); };
     // pointer: drag to turn, wheel to zoom, click a track to select, drag along the selected track to pick a time
     let down = null, last = null, moved = 0, scrub = false, hovT = 0;
@@ -62,11 +67,25 @@ export class GlobeUI {
     });
     addEventListener('pointerup', (e) => {
       if (!this.active || !down) return;
-      if (moved < 5 && !scrub) { const h = this.g.pick(e.clientX, e.clientY); if (h) this.select(h.storm, pointAt(h.storm, h.i, h.f)); }
+      if (moved < 5 && !scrub) { const h = this.g.pick(e.clientX, e.clientY); if (h) { this.touched = true; this.select(h.storm, pointAt(h.storm, h.i, h.f)); } }
       down = null; scrub = false; this.dragging = false;
     });
     canvas.addEventListener('wheel', (e) => { if (!this.active) return; e.preventDefault(); this.g.zoom(Math.exp(e.deltaY * 0.0012)); }, { passive: false });
     this.apply();
+  }
+  // live storms from NHC (live.json, refreshed by the scheduled task), or the labelled demo replay
+  setLive(doc) {
+    this.liveDoc = doc; this.live = doc?.storms || [];
+    const demo = this.live.some((s) => s.live.demo), chk = doc?.checked ? Date.parse(doc.checked) : null;
+    const head = `<div class="lh"><i class="dot${this.live.length ? ' on' : ''}"></i><b>${demo ? 'Live storms · demo' : 'Live storms'}</b><span>${demo ? 'not live' : chk ? `checked ${ago(chk)}` : ''}</span></div>`;
+    let body;
+    if (!doc || doc.error) body = '<p>Live NHC data could not be loaded.</p>';
+    else if (!doc.checked) body = '<p>Live feed not set up in this copy.</p>';
+    else if (!this.live.length) body = '<p>No active tropical cyclones in the Atlantic, eastern or central Pacific. <a href="#livedemo" data-reload>See a demo replay</a></p>';
+    else body = this.live.map((s, i) => `<div class="row" data-l="${i}">${chip(catOf(s.live.v))}<b>${s.name}</b><span>${s.live.cls} · ${s.live.v} kt · adv ${+s.live.adv || '—'}</span></div>`).join('');
+    if (demo) body += '<p><a href="#globe" data-reload>Back to the live feed</a></p>';
+    const stale = chk && this.live.length && !demo && Date.now() - chk > 9 * 3600e3 ? '<p class="warn">Not refreshed for over 9 hours: may be out of date. Check nhc.noaa.gov.</p>' : '';
+    $('gl-live').innerHTML = head + body + stale;
   }
   scrubTo(e) { const h = this.g.pick(e.clientX, e.clientY, true); if (h) this.setPoint(pointAt(this.sel, h.i, h.f)); }
   apply() {
@@ -80,10 +99,13 @@ export class GlobeUI {
     $('gl-list').innerHTML = rows.reverse().join(''); $('gl-count').textContent = `${n} storm${n === 1 ? '' : 's'}`;
   }
   select(s, pt, fly) {
+    if (fly === true) this.touched = true;
     this.sel = s; this.g.select(s);
     for (const r of document.querySelectorAll('#gl-list .row')) r.classList.toggle('sel', this.storms[+r.dataset.i] === s);
     if (!s) { $('gl-info').classList.add('hide'); return; }
-    if (!pt) { let k = 0; s.v.forEach((v, i) => { if (v > s.v[k]) k = i; }); pt = pointAt(s, k, 0); } // default: peak intensity
+    for (const r of document.querySelectorAll('#gl-live .row')) r.classList.toggle('sel', this.live[+r.dataset.l] === s);
+    if (!pt) { let k = 0; s.v.forEach((v, i) => { if (v > s.v[k]) k = i; }); if (s.live) k = s.t.length - 1; pt = pointAt(s, k, 0); } // default: peak, or the latest fix if live
+    if (s.live) return this.selectLive(s, pt, fly);
     const T = TOLL[s.id];
     const toll = !T ? '<p class="dim">Not compiled yet.</p>' :
       `<div class="row2"><span class="k">Deaths</span><b>${T.deaths}</b></div><div class="row2"><span class="k">Damage</span><b>${T.damage}</b></div>${T.note ? `<p class="dim">${T.note}</p>` : ''}`;
@@ -103,6 +125,35 @@ export class GlobeUI {
     $('gl-go').onclick = () => this.pt && this.hooks.launch(s, this.pt);
     this.setPoint(pt);
     if (fly !== false) { const P = s.lat.map((la, i) => [la / 10, s.lon[i] / 10]); const lat = P.reduce((a, p) => a + p[0], 0) / P.length; let lon = P.reduce((a, p) => a + p[1], 0) / P.length; this.g.flyTo(lat, lon, Math.max(this.g.view.dist, 2.4)); }
+  }
+  selectLive(s, pt, fly) {
+    const L = s.live, it = Date.parse(L.issued), mv = L.dir != null ? `${COMPASS[Math.round(L.dir / 22.5) % 16]} at ${L.spd} kt` : '—';
+    const fpk = L.fc.reduce((a, f) => (f.tau > 0 && f.v > (a?.v ?? -1) ? f : a), null);
+    const lnk = [[L.pub, 'Public advisory'], [L.disc, 'Forecast discussion'], [L.gfx, 'NHC graphics']].filter((x) => x[0]).map(([u, n]) => `<a href="${u}" target="_blank" rel="noopener">${n}</a>`).join(' · ');
+    const ok = s.t.length > 1;
+    $('gl-info').innerHTML = `<div class="gh"><b>${title(s)}</b><span>${BASIN[s.basin]} · <em class="${L.demo ? 'demo' : 'live'}">${L.demo ? 'Demo replay' : 'Live'}</em> · advisory ${+L.adv || '—'}</span></div>
+      ${L.demo ? `<p class="warn">${L.demo}</p>` : ''}
+      <div class="row2"><span class="k">Issued</span><b>${fmtT(it)}${L.demo ? '' : ` · ${ago(it)}`}</b></div>
+      <div class="row2"><span class="k">Now</span><b>${chip(catOf(L.v))}${L.v} kt (${Math.round(L.v * 1.15078)} mph) · ${L.p ?? '—'} mb</b></div>
+      <div class="row2"><span class="k">Moving</span><b>${mv}</b></div>
+      <div class="row2"><span class="k">Position</span><b>${Math.abs(L.lat).toFixed(1)}°${L.lat >= 0 ? 'N' : 'S'} ${Math.abs(L.lon).toFixed(1)}°${L.lon < 0 ? 'W' : 'E'}</b></div>
+      ${fpk ? `<div class="row2"><span class="k">Forecast peak</span><b>${chip(catOf(fpk.v))}${fpk.v} kt in ${fpk.tau} h</b></div>` : ''}
+      <p class="dim">Dashed line and white area on the globe: NHC's official forecast track and cone (the centre stays inside it about two thirds of the time; impacts reach well beyond it).</p>
+      <div class="src">${lnk}</div>
+      <div class="sec">Impacts</div><p class="dim">Still unfolding. Deaths and damage are compiled in NHC's report after the storm. For safety decisions use the National Hurricane Center and your local National Weather Service office, not this visualiser.</p>
+      <div class="sec">Start point</div>
+      ${ok ? '<input type="range" id="gl-slide" min="0" max="1000" step="1"><div id="gl-pt"></div>' : '<p class="dim">NHC has not published a best-track file for this storm yet.</p><div id="gl-pt"></div>'}
+      <p class="dim">No NASA photo for live storms yet; clouds come from the storm model.</p>
+      <button id="gl-go"${ok ? '' : ' disabled'}>Dive in</button>
+      <p class="dim">Conditions are reconstructed from NHC's operational best track up to the latest fix, not recorded. The dive stops at the latest fix; it does not play out the forecast.</p>`;
+    $('gl-info').classList.remove('hide');
+    $('gl-go').onclick = () => this.pt && this.hooks.launch(s, this.pt);
+    if (ok) {
+      const t0 = tOf(s.t[0]), t1 = tOf(s.t[s.t.length - 1]);
+      $('gl-slide').oninput = (e) => this.setPoint(pointAtTime(s, t0 + (t1 - t0) * (+e.target.value / 1000)), true);
+      this.setPoint(pt);
+    } else { this.pt = null; this.g.setPoint(L.lat, L.lon); }
+    if (fly !== false) this.g.flyTo(L.lat, L.lon, Math.max(this.g.view.dist, 2.4));
   }
   setPoint(p, fromSlider) {
     const s = this.sel; this.pt = p; this.g.setPoint(p.lat, p.lon);

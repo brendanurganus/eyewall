@@ -87,7 +87,7 @@ Compass heading psi: forward = (sin psi, 0, -cos psi).
 - A published Claude artifact cannot fetch images at run time, so images must be bundled there.
   A GitHub Pages copy could fetch them, if the service allows cross-origin requests (not checked).
 
-## Stage 3: time, day/night, moon (this stage)
+## Stage 3: time, day/night, moon
 
 - **Clock.** Storm time runs only in the storm scene, at 1x, 10x, 60x or 600x (`[` `]`, P pause, on-screen
   bar). The storm follows its track and intensity; waves, boat, cloud motion and rain stay real time.
@@ -131,7 +131,7 @@ span that. The standard approach is used:
 7. **Stars are procedural** (realistic count by magnitude, fixed to the celestial sphere and rotating
    with sidereal time), not a real catalogue. No Milky Way.
 
-## Stage 4: globe, archive, path selector, human toll, photos (this stage)
+## Stage 4: globe, archive, path selector, human toll, photos
 
 - **Archive** (`tools/archive.py` -> `src/archive.js`, 2.2 MB): all 793 finalised storms 2005-2025
   (preliminary 2026 excluded, owner decision), columnar tracks with wind radii, RMW, POCI, eye fixes.
@@ -166,6 +166,36 @@ span that. The standard approach is used:
   in daylight. Every other storm/time uses the analytic clouds.
   Covering every hurricane-day would be ~1,500 snapshots (~800 MB): too big to ship in an artifact.
   A hosted copy (GitHub Pages) can instead fetch GIBS live: GIBS sends `Access-Control-Allow-Origin: *`.
+
+## Stage 5: live storms and scheduled refresh (this stage)
+
+- **Data** (`tools/live.py`, standard library only): NHC `CurrentStorms.json` (active storms, advisory
+  number, position, movement, product links; CPHC storms are in the same feed), the ATCF b-deck
+  `ftp.nhc.noaa.gov/atcf/btk/b<id>.dat` (operational best track so far: same fields as the archive,
+  so the dive runs on it unchanged), and the forecast GIS zip `gis/forecast/archive/<id>_5day_<adv>.zip`
+  (forecast points and the cone polygon, read with a small built-in shapefile/dbf reader). Writes
+  `live.json`: archive-format entries plus a `live` block (advisory, forecast, cone, links).
+  Prints PUBLISH or SKIP last: publish when storms/advisories changed, or once a day as a heartbeat.
+- **Page**: `main.js` fetches `live.json` (next to `index.html`, no-store). Globe draws each live
+  storm's observed track, NHC forecast track (dashed, category dots) and cone (white fill + outline;
+  longitudes unwrapped so cones over the 180th meridian triangulate), and a pulsing marker at the
+  advisory position. Panel: "Live storms" block above the archive (or "no active storms", "feed not
+  set up", "could not be loaded", and a stale warning past 9 h). Live info panel: advisory, now,
+  movement, forecast peak, NHC links, impacts note pointing to NHC/NWS for safety decisions, start
+  point (default: latest fix), Dive in. The dive stops at the latest fix (time bar: "Latest NHC fix");
+  it never plays out the forecast. Footnote says live data is preliminary.
+- **Demo**: `#livedemo` loads `live_demo.json`, a labelled replay of NHC advisory 10 for Hurricane
+  Isaias (9 Oct 2026, Gulf of Mexico): `python3 tools/live.py src/live_demo.json --demo al092026 010`.
+  Note the b-deck has been revised since (85 kt at the fix vs 90 kt in the advisory), so the demo's
+  track and advisory numbers differ slightly; in real time they match.
+- **Refresh**: a scheduled task (every 3 h, :45 past 00/03/06/... UTC, ~45 min after each NHC
+  advisory or intermediate advisory) reads `tools/live.txt` and `live.json` from the artifact, runs the
+  script and republishes `live.json` only (the OverHead pattern). The build writes `dist/tools/live.txt`.
+- **Publishing from dev**: the build writes an empty placeholder `live.json` unless `LIVE=path` is
+  given. Do not republish `live.json` from dev; leave it to the scheduled task (or run
+  `tools/live.py` first and pass `LIVE=`).
+- **Not done**: no NASA photo for live storms (model clouds only); storms that ended this season are
+  not shown until NOAA finalises HURDAT2; watches/warnings and wind-speed probabilities not drawn.
 
 ## Data (`data/`), from Stage 1
 
@@ -259,6 +289,7 @@ K shake, M motion blur, F fps counter, I replay intro, V replay dive. Space/Ente
                                              # the boat sits at the origin.
     node test/launch.mjs outDir "Name|year|peak or 0-1"...   # globe -> launch -> storm scene
     node test/land.mjs                       # launch-point land check at landfall times
+    node test/live.mjs outDir [demo|live] [dive]   # live panel + globe over http (FLY=lat,lon,dist)
     HASH='#low' node test/shot.mjs out.png 800 450 15000 "<js before>" "<js to eval after>"
 
 `shot.mjs` drives headless Chrome with software GL. Useful hooks on `window.__ew`:
@@ -270,11 +301,9 @@ frozen test; that is a test artefact.
 
 Done: Stage 1; Stage 2 (shore opening, Katrina scene); Stage 3 (storm time, speed controls,
 day/night, moon, stars); Stage 4 (globe, archive, tracks, path selector, human toll, launch and dive,
-photos for majors); a basic readout, storm map with track, lightning, title and fps governor.
+photos for majors); Stage 5 (live storms, NHC forecast and cone, scheduled refresh); a basic readout, storm map with track, lightning, title and fps governor.
 
 Left:
 - **Intro remainder** (brief Stage 6): rise from the beach to space, tracks drawing in date order.
-- **Stage 5:** live storms and scheduled refresh. NHC's `CurrentStorms.json` sends no CORS
-  headers, so a GitHub Pages copy cannot fetch it directly either.
 - **Stage 6:** settings panel, phone version, methodology page, buoy comparison across storms and
   wave-model calibration, GitHub Pages.

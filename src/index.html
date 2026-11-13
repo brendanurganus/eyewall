@@ -32,6 +32,12 @@ canvas#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-actio
 .gf select,.gf input{flex:1;min-width:0;font:inherit;color:#e8f3fa;background:rgba(10,24,38,.9);border:1px solid rgba(110,170,210,.3);padding:5px 6px}
 .gf button,#gl-go{font:inherit;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#9db8cb;background:transparent;border:1px solid rgba(110,170,210,.25);padding:4px 7px;cursor:pointer}
 .gf button.on{color:#fff;background:rgba(159,208,240,.16);border-color:rgba(159,208,240,.65)}
+#gl-live{border-bottom:1px solid rgba(110,170,210,.2);padding:2px 4px 6px}#gl-live p{margin:2px 8px 4px;color:#7fa6c2;line-height:1.45}#gl-live p.warn{color:#ff9a6b}#gl-live a{color:#9fd0f0}
+#gl-live .lh{display:flex;align-items:center;gap:7px;padding:7px 8px 4px;text-transform:uppercase;font-size:10px}#gl-live .lh b{color:#fff;font-weight:600;letter-spacing:.08em}#gl-live .lh span{margin-left:auto;color:#6f8ea5;text-transform:none}
+#gl-live .dot{width:7px;height:7px;border-radius:50%;background:#4d6577}#gl-live .dot.on{background:#ff6145;box-shadow:0 0 0 0 rgba(255,97,69,.6);animation:lp 1.6s infinite}@keyframes lp{70%{box-shadow:0 0 0 7px rgba(255,97,69,0)}100%{box-shadow:0 0 0 0 rgba(255,97,69,0)}}
+#gl-live .row{display:flex;align-items:center;gap:7px;padding:5px 8px;cursor:pointer;border-left:2px solid rgba(255,97,69,.55)}#gl-live .row:hover{background:rgba(255,97,69,.14)}#gl-live .row.sel{background:rgba(255,97,69,.2)}
+#gl-live .row b{font-weight:600;color:#fff;min-width:84px}#gl-live .row span{color:#c9a99f;font-size:10px}
+.gh em{font-style:normal;padding:0 4px;border:1px solid}.gh em.live{color:#ff8a70;border-color:rgba(255,97,69,.6)}.gh em.demo{color:#ffd27a;border-color:rgba(255,210,122,.5)}
 #gl-count{padding:8px 12px 4px;color:#7fa6c2;text-transform:uppercase;font-size:10px}
 #gl-list{flex:1;overflow:auto;padding:0 4px 8px}
 #gl-list .row{display:flex;align-items:center;gap:7px;padding:5px 8px;cursor:pointer;border-left:2px solid transparent}
