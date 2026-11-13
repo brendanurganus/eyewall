@@ -349,9 +349,13 @@ day/night, moon, stars); Stage 4 (globe, archive, tracks, path selector, human t
 photos for majors); Stage 5 (live storms, NHC forecast and cone, scheduled refresh); Stage 6 (full
 intro, settings, phone version, methodology page, buoy comparison and calibration).
 
+**GitHub Pages** (https://brendanurganus.github.io/eyewall/): `.github/workflows/pages.yml` builds and
+deploys on every push to main and, on the same season schedule as the artifact refresh, re-reads NHC
+into `live.json` (not committed; rebuilt each run). The photo sets live in `data/photos/` (build default
+`SATLIB`). One-time setup: Settings > Pages > Source: GitHub Actions. The Claude artifact keeps its
+own scheduled refresh; the two copies are independent.
+
 Left:
-- **GitHub Pages copy**: needs the branch pushed (owner approval). The build output in `dist/` is a
-  static site; `live.json` there would need its own refresh (a GitHub Action could run tools/live.py).
 - **Clouds** (parked by the owner): flat grey cloud tops from low orbit, model-cloud ring/blotches at
   low altitude in the dive.
 - **Gust factor** is still a 1.2 placeholder; Harper et al. (2010) gives sourced at-sea gust factors.
