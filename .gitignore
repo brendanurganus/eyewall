@@ -1,4 +1,6 @@
 node_modules/
 dist/
-*.png
 satlib/
+# screenshots from tests; the app's own images under src/assets are tracked
+*.png
+!src/assets/*.png

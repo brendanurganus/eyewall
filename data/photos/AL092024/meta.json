@@ -1,0 +1,1 @@
+{"t": 1727374032000, "src": "VIIRS NOAA-20", "used": ["VIIRS NOAA-20", "VIIRS NOAA-20 previous day (edges)"], "wide": [-95.051, 34.48, -75.051, 18.48], "core": [-86.851, 28.28, -83.251, 24.68], "eye": [-84.8693, 26.992], "eyeFound": false, "contrast": 32.0, "gaps": 0.0001}
