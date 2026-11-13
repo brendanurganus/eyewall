@@ -184,8 +184,17 @@ const satOK = () => sat.ready && sat.id === cur.id && Math.abs(clock.t - sat.met
 function loadSat(id) {
   if (sat.id === id) return; sat.id = id; sat.ready = false; sat.meta = SATIDX[id] || null;
   if (!sat.meta) return;
-  const L = new THREE.TextureLoader(), su = sky.u, m = sat.meta, base = `sat/${id}/`; let n = 0;
-  const done = () => { if (++n === 3 && sat.id === id) {
+  const L = new THREE.TextureLoader(), su = sky.u, m = sat.meta, base = `sat/${id}/`; let n = 0, cv = null;
+  // cloud cover for the sea-level clouds: the photo's darkest channel, blurred (as tools/sat.py made it)
+  const coverOf = (img) => {
+    const a = document.createElement('canvas'); a.width = 640; a.height = 512; const x = a.getContext('2d', { willReadFrequently: true });
+    x.drawImage(img, 0, 0, 640, 512); const d = x.getImageData(0, 0, 640, 512), p = d.data;
+    for (let i = 0; i < p.length; i += 4) p[i] = p[i + 1] = p[i + 2] = Math.min(p[i], p[i + 1], p[i + 2]);
+    x.putImageData(d, 0, 0); const b = document.createElement('canvas'); b.width = 640; b.height = 512;
+    const y = b.getContext('2d'); y.filter = 'blur(2.5px)'; y.drawImage(a, 0, 0); return new THREE.CanvasTexture(b);
+  };
+  const done = () => { if (++n === 2 && sat.id === id) {
+    cv = coverOf(w.image);
     for (const tx of [w, c]) { tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 8; tx.wrapS = tx.wrapT = THREE.ClampToEdgeWrapping; tx.needsUpdate = true; }
     cv.wrapS = cv.wrapT = THREE.ClampToEdgeWrapping; cv.minFilter = THREE.LinearFilter; cv.generateMipmaps = false; cv.needsUpdate = true;
     for (const [k, tx] of [['uSatWide', w], ['uSatCore', c]]) { dive.u[k].value?.dispose?.(); dive.u[k].value = tx; }
@@ -194,7 +203,7 @@ function loadSat(id) {
     su.uSatW.value.set(W[0], W[1], W[2] - W[0], W[1] - W[3]); su.uSatC.value.set(C[0], C[1], C[2] - C[0], C[1] - C[3]); su.uSatEye.value.set(m.eye[0], m.eye[1]);
     sat.ready = true; if (mode === 'intro') su.uUseSat.value = id === 'AL122005' ? 1 : 0; } };
   const fail = () => { if (sat.id === id) sat.meta = null; };
-  const w = L.load(base + 'wide.jpg', done, undefined, fail), c = L.load(base + 'core.jpg', done, undefined, fail), cv = L.load(base + 'cov.jpg', done, undefined, fail);
+  const w = L.load(base + 'wide.jpg', done, undefined, fail), c = L.load(base + 'core.jpg', done, undefined, fail);
 }
 
 // ---- HUD ----

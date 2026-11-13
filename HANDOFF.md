@@ -27,7 +27,8 @@ A single-page WebGL 2 app (three.js r160), bundled into one HTML file.
 Published as a Claude artifact titled "Eyewall prototype: opening, dive and Katrina".
 Flow: shore opening (16.5 s) -> globe and storm archive -> pick a storm and a point on its track ->
 dive from space (11 s) -> drivable storm scene at that time, storm time running. B returns to the globe.
-The artifact is multi-file: index.html plus sat/<id>/{wide,core,cov}.jpg, loaded on launch.
+The artifact is multi-file: index.html plus sat/<id>/{wide,core}.jpg, loaded on launch (the cloud-cover
+map is derived from wide.jpg in the browser). Artifact versions hold at most 512 files.
 
 URL hashes: `#globe` opens on the globe; `#storm` skips straight to the Katrina storm scene; `#low` is a cheap mode for software
 renderers (used by the test harness).
