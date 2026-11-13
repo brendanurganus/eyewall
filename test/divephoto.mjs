@@ -17,10 +17,10 @@ for (const id of ids) {
     document.getElementById('gl-go').click(); return { name: s.name, photo };
   }, id);
   await new Promise((r) => setTimeout(r, 2500));
-  await p.evaluate((dt) => { __ew.dbg.diveFreeze = true; __ew.setDive(dt); __ew.LT.on = false; }, +(process.env.DT || 2.5));
+  await p.evaluate((dt) => { __ew.dbg.diveFreeze = true; __ew.dbg.fixedDt = 0.25; __ew.setDive(dt); __ew.LT.on = false; }, +(process.env.DT || 2.5));
   await new Promise((r) => setTimeout(r, 9000));
   const s = await p.evaluate(() => { const E = __ew, b = new Uint16Array(4); E.sim.r.readRenderTargetPixels(E.post.exp[E.post.ei], 0, 0, 1, 1, b); const f = (v) => E.THREE.DataUtils.fromHalfFloat(v); return { e: f(b[0]).toFixed(3), scot: f(b[1]).toFixed(2), pre: E.post.pre.toFixed(1), key: E.env.key, fade: E.post.fade.toFixed(2), photo: E.dive.u.uPhoto.value.toFixed(2), useSat: E.sky.u.uUseSat.value, alt: Math.round(E.dv.alt / 1e3) + ' km' }; });
-  await p.screenshot({ path: `${outDir}/dive_${id}.png` });
+  await p.screenshot({ path: `${outDir}/dive_${id}_${process.env.DT || 2.5}.png` });
   console.log(id, r.name, JSON.stringify(s));
 }
 console.log('errors', errs.slice(0, 5)); await b.close();
