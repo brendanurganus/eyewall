@@ -1,0 +1,305 @@
+# Hand-checked human toll and damage from NHC/CPHC Tropical Cyclone Reports (public domain, NWS).
+# id | deaths | damage | note      ("Not stated": the report gives no figure)
+AL012005|1 direct|Little or none|Rip current, Miami Beach.
+AL012006|None as a tropical storm|Minor (flooding in Florida)|1 death after it became extratropical.
+AL012007|None as a subtropical storm|Not stated|Its precursor low caused 6 deaths, including the 4 crew of the sailing vessel Flying Colours.
+AL012008|5 direct (Belize)|About $78 million (Belize estimate)|
+AL012010|12 direct (Mexico)|About $1.5 billion (Mexico, rough estimate)|Media accounts of deaths conflict.
+AL012011|22 (Mexico)|Not stated|The report could not separate direct from indirect deaths.
+AL012013|1 direct, 3 indirect|Minor (U.S. insured losses under $25 million)|
+AL012014|None reported|Under $25 million insured (U.S.)|
+AL012015|1 direct|Under $25 million insured (U.S.)|Rip current, Oak Island, North Carolina.
+AL012018|8 direct (U.S.)|About $125 million (U.S., NOAA NCEI)|
+AL012022|None as a tropical cyclone|Not stated|Its precursor disturbance caused 4 flood deaths in Cuba.
+AL012024|2 direct (1 U.S., 1 Mexico)|About $125 million (U.S., NOAA NCEI)|
+AL022005|1 (Mexico)|Not stated|
+AL022007|None reported|Minor|
+AL022008|3 (rip currents, New Jersey)|Minor (Bermuda)|
+AL022012|1 direct|Under $25 million insured (U.S.)|
+AL022013|5 direct (2 El Salvador, 3 Mexico)|Not stated|
+AL022015|3 direct (U.S.)|Not stated|
+AL022016|1 direct|About $640,000 (one county, media report)|
+AL022017|1 indirect (Trinidad)|Not stated|
+AL022019|None reported|About $600 million (U.S., NOAA NCEI)|
+AL022020|1 (rip current, South Carolina)|Minor|
+AL022022|5 direct (4 Nicaragua, 1 El Salvador)|Over $25 million (Aon estimate)|
+AL022025|8 direct (Mexico)|At least $5.6 million (Mexico)|
+AL032009|2 (high surf)|Not stated|
+AL032013|1 direct (Dominican Republic)|Not stated|
+AL032014|2 direct (rip currents)|Not stated|
+AL032016|4 direct (rip currents)|Minor (about $10,000 reported)|
+AL032017|1 direct|Under $25 million (U.S., NOAA NCEI)|
+AL032018|1 direct|Not stated|
+AL032005|1 direct|About $320 million (U.S.)|
+AL032020|6 (3 in Mexico; 3 in U.S.)|About $310 million (U.S., NOAA NCEI)|Cristobal's precursor overlapped Eastern Pacific storm Amanda, which caused 40 deaths in Central America.
+AL032021|4 direct (Alabama)|About $375 million (U.S., NOAA NCEI)|Its rain was also linked to a highway crash that killed 10 (indirect).
+AL032022|1 direct (rough surf, North Carolina)|Not stated|
+AL032024|5 direct (Mexico)|Not stated|
+AL032025|6 direct (U.S.)|About $500 million (U.S., Gallagher Re estimate)|
+AL042005|42 direct (22 Haiti, 16 Cuba, 3 U.S., 1 Jamaica), 12 indirect (Florida)|About $2.5 billion (U.S., revised 2011)|
+AL042006|None reported|Minor|
+AL042007|32 direct (14 Haiti, 12 Mexico, 3 Jamaica, 2 Dominica, 1 St. Lucia)|Not totaled: about €400 million in Martinique, €100 million in Guadeloupe, $100 million in Belize|
+AL042008|1 (rough surf, Florida)|About $1.05 billion (U.S.; $525 million insured)|
+AL042009|2 (drownings, Florida)|Minimal|
+AL042012|5 direct (Florida)|About $250 million (U.S. preliminary)|
+AL042014|7 direct (drownings)|Not stated|
+AL042016|1 direct (Mexico)|Not stated|
+AL042024|11 direct in U.S., 1 in Canada; 6 indirect|About $2.5 billion (U.S., NOAA NCEI)|
+AL052005|6 direct|Not stated|
+AL052007|9 direct (Texas) as a tropical cyclone|Not stated (under the insured-loss threshold)|Its remnants caused 7 more deaths in Oklahoma and Missouri.
+AL052008|1|Light|
+AL052009|1 (surf, North Carolina)|Not stated|
+AL052011|1 indirect (Martinique)|Not stated|Early reports of 3 deaths in the Dominican Republic proved wrong.
+AL052012|7 direct, 5 indirect (Mexico)|At least $174 million (Mexico, media reports)|
+AL052014|1 indirect|Not stated|
+AL052015|30 direct (Dominica)|Up to $500 million (Dominica, press estimates vary)|
+AL052016|81 direct (Mexico)|About $110 million (Aon estimate)|Its precursor disturbance caused 13 more deaths in the Dominican Republic.
+AL052017|None reported|None reported|
+AL052019|74 direct in the Bahamas (official); 4 indirect in the U.S.|About $3.4 billion (Bahamas); U.S. damage in report|The Bahamas Health Minister put deaths above 200; 245 people were missing at the time of the report.
+AL052021|13 direct (9 offshore Florida Straits, 2 Dominican Republic, 1 Martinique, 1 U.S.)|About $1.2 billion (U.S., NOAA NCEI)|
+AL052022|None as a tropical cyclone|Not stated|As an extratropical cyclone it caused flooding and landslides in Portugal.
+AL052023|None reported|None reported|
+AL052024|3 direct (rip currents, U.S.)|About $520 million|
+AL052025|13 direct (7 Cabo Verde, 3 Puerto Rico, plus U.S. and Dominican Republic rip currents)|About $3.1 million (North Carolina)|
+AL062006|5 direct (Haiti)|About $500 million (U.S.; $245 million insured)|
+AL062007|About 130 (Nicaragua and Honduras), 70 missing|Not stated|Media reports; most deaths in Nicaragua.
+AL062008|13 direct (5 Dominican Republic, 5 Florida, 3 Haiti), 8 indirect|About $560 million (U.S.)|
+AL062010|1 (rough surf, Florida)|Not stated|
+AL062013|14 (13 Veracruz landslides, 1 Oaxaca)|Not stated|
+AL062015|9 direct, plus 2 fishermen missing (Cabo Verde)|About $1 million (Cabo Verde)|
+AL062017|None reported|About $10 million|
+AL062018|22 direct (15 North Carolina, 4 South Carolina, 3 Virginia), 30 indirect|About $24 billion (U.S., NOAA NCEI)|
+AL062020|2 direct (surf, New Jersey and New York)|About $220 million (U.S.)|
+AL062022|2 direct (lightning, Puerto Rico waters)|Not stated|
+AL072006|None reported|Not stated|
+AL072008|112 direct (77 Haiti, 15 Jamaica, 8 Dominican Republic, 7 Louisiana, 4 Florida, 1 at sea), 41 indirect (Louisiana)|About $4.6 billion (U.S., revised 2011)|The report notes the true toll will probably never be known.
+AL072010|5 (rough surf and waves: U.S. and Canada)|About $45 million ($18 million U.S.)|
+AL072012|None as a tropical cyclone|Not stated|Its remnants were linked to 2 deaths in Trinidad.
+AL072014|None reported|About $3.8 million (one Bermuda insurer, preliminary)|
+AL072018|1 direct (Florida)|About $200–250 million (preliminary)|Its remnant moisture contributed to 3 flood deaths in Missouri and Kentucky.
+AL072019|1 direct (Mexico)|About $383 million (Nuevo León estimate)|
+AL072025|None reported|Light (Azores)|
+AL082008|About 500 (Haiti, mostly Gonaïves flooding)|About $160 million (U.S.)|Haiti's toll cannot be separated cleanly from Fay, Gustav and Ike; 793 died in Haiti from the four storms.
+AL082014|1 direct, 2 missing (Sint Maarten / St. Martin)|$200–400 million insured (Bermuda, media reports)|
+AL082020|At least 4 direct (Mexico); 5 indirect (Texas)|About $1.2 billion (U.S. and Mexico)|
+AL082021|None reported|About $700 million (U.S., NOAA NCEI)|
+AL082023|3 direct (Dominican Republic)|About $90 million (Dominican Republic, media)|
+AL092007|1 direct (Texas)|Under $50 million insured (U.S.)|
+AL092011|48 direct (40 U.S., 5 Dominican Republic, 3 Haiti)|About $15.8 billion (U.S.)|
+AL092012|34 direct (Haiti, Dominican Republic, U.S.)|About $2.35 billion (U.S.)|
+AL092016|1 direct (Florida)|About $550 million (U.S., NOAA NCEI)|
+AL092017|At least 68 direct (Texas)|About $125 billion (U.S., NOAA; range $90–160 billion)|
+AL092023|None reported|Not stated|
+AL102010|6 (5 Texas, 1 Oklahoma)|About $240 million (U.S.; $120 million insured)|
+AL102013|32 (Mexico; direct and indirect not separated)|About $230 million insured (Mexico, Aon)|
+AL102025|1 direct (Guadeloupe)|Not stated|
+AL112005|6 direct (Mexico)|Not stated|
+AL112008|None as a tropical cyclone|Not stated|The low that preceded Kyle caused 6 flood deaths in Puerto Rico.
+AL112009|None attributed|Not stated|At least 124 deaths in El Salvador were tied to a separate disturbance, not Ida.
+AL112010|3 (Puerto Rico, St. Croix, Newfoundland)|About $200 million (Newfoundland, preliminary); under $500,000 (Bermuda)|
+AL112015|34 (33 El Faro crew, 1 Haiti)|Over $60 million (Bahamas)|The U.S. cargo ship El Faro sank near the Bahamas in the hurricane.
+AL112019|5 direct (Texas)|About $5 billion (U.S., NOAA NCEI)|
+AL122011|None as a tropical cyclone|Not stated|1 direct and 1 indirect death in England after it became extratropical.
+AL122017|1 (rip current, New Jersey)|Not stated|
+AL092008|103 direct (Haiti 74, Dominican Republic 2, Cuba, U.S. Gulf Coast)|About $29.5 billion (U.S.); $3–4 billion (Cuba)|More deaths and damage followed in the Ohio Valley and Canada after Ike became extratropical.
+AL092019|2 direct (U.S.)|Not stated|
+AL022024|35 direct (14 U.S., 8 St. Vincent and the Grenadines, 6 Venezuela, 4 Jamaica, 3 Grenada), 34 indirect (U.S.)|About $7.2 billion (U.S.)|
+AL062021|6 direct (North Carolina), 1 indirect|About $1.3 billion (U.S., NOAA NCEI)|
+AL062024|None reported|See NOAA report (U.S. NCEI estimate)|
+AL072021|12 direct (Mexico), at least 4 in Haiti|Over $513 million (Mexico and Greater Antilles, Aon)|Haiti's toll is uncertain: a magnitude-7.2 earthquake had struck days earlier.
+AL072022|7 direct (2 Puerto Rico, 2 Dominican Republic, 2 Canada, 1 Guadeloupe)|Over $3.09 billion (Caribbean and Canada, Aon); see report for Puerto Rico|
+AL082011|5 (Mexico)|Not stated|
+AL082017|2 direct (rip currents, U.S.)|Not stated|
+AL092020|12 direct (10 U.S., 1 Puerto Rico, 1 Dominican Republic), 5 indirect|About $4.8 billion (U.S. and Caribbean)|
+AL092021|55 direct (U.S.; 6 as a tropical cyclone, 49 in the Northeast as post-tropical), 32 indirect|About $75 billion (U.S., NOAA NCEI)|
+AL092022|66 direct (Florida), about 90 indirect (at least 156 total in U.S.)|About $112.9 billion (U.S., NOAA NCEI)|Storm surge killed 41.
+AL092024|At least 175 direct (U.S.)|About $78.7 billion (U.S., NOAA NCEI)|Most deaths came from freshwater flooding in the southern Appalachians.
+AL092025|2 direct (Cuba)|Not stated|
+AL102023|9 direct, 3 indirect (U.S.)|About $3.6 billion (U.S., NOAA NCEI)|
+AL112017|46 direct (10 U.S., the rest in the Caribbean), 82 indirect in the U.S.|About $50 billion (U.S., NOAA NCEI); billions more in the Caribbean|
+AL122005|Nearly 1,400 direct and indirect (U.S.)|About $125 billion (U.S., 2005 dollars; NOAA NCEI)|Revised from the original estimate of over 1,800 after later studies (Rappaport 2014; Rappaport and Blanchard 2016).
+AL122012|None reported|Minor (Bermuda, Newfoundland)|
+AL122019|None reported|Significant local damage (Tobago)|
+AL122021|5 direct (rip currents)|About C$25 million insured (Newfoundland)|
+AL132007|6 (Mexico)|Not stated|
+AL132010|22 (Mexico)|About $206 million (Mexico, AIR Worldwide)|
+AL132011|3 direct as a tropical cyclone|About $630 million (U.S.; $315 million insured)|Its remnants were linked to at least 12 more flood deaths in the eastern U.S.
+AL132017|2 (Mexico, mudslide)|Not stated|
+AL132018|None as a tropical cyclone|Not stated|1 death in Portugal from the extratropical cyclone.
+AL132019|19 direct (11 crew of the tug Bourbon Rhode, 8 rip-current deaths in the U.S.)|Not stated|
+AL132020|7 direct (U.S.); 31 in Haiti and 9 in the Dominican Republic|About $19 billion (U.S., NOAA NCEI)|
+AL132021|None as a tropical cyclone|Minor|Its precursor's rains in Central America caused 23 deaths and over $75 million in losses (Aon).
+AL132022|35 direct (Central America), 54 indirect (Venezuela)|About $400 million (Nicaragua)|
+AL132023|4 direct|About $50 million (Aon estimate)|
+AL132025|At least 93 (45 Jamaica, 43 Haiti, 5 elsewhere)|About $12.2 billion (Jamaica, World Bank)|Direct and indirect deaths not yet separated in the report.
+AL142005|None as a tropical cyclone|None reported|Its extratropical successor triggered a landslide in Norway that killed 1.
+AL142011|None reported|Minor flooding (Puerto Rico)|
+AL142016|585 direct (546 Haiti, 34 U.S., 4 Dominican Republic, 1 St. Vincent), 18 indirect (U.S.)|About $10 billion (U.S.); $1.9 billion (Haiti); $2.6 billion (Cuba)|128 people missing in Haiti.
+AL142018|16 direct, 43 indirect (U.S.)|About $25 billion (U.S.)|
+AL142019|None reported|Minor|
+AL142021|2 direct (Alabama)|About $1 billion (U.S., NOAA NCEI preliminary)|
+AL142022|3 (Mexico)|Not stated|
+AL142024|15 direct (12 Florida, 3 Mexico)|About $34.3 billion (U.S., NOAA NCEI)|
+AL152008|None reported|About $5 million|
+AL152010|78 (65 Nicaragua, 8 Mexico, 4 Honduras, 1 El Salvador)|Not stated|Media reports.
+AL152011|4 direct, 1 indirect|Not stated|
+AL152016|1 direct (rip current, North Carolina)|About $15 million insured (Bermuda)|
+AL152017|2,975 in Puerto Rico (government estimate, direct and indirect); 31 direct in Dominica, 2 in Guadeloupe|About $90 billion (Puerto Rico and U.S. Virgin Islands, NOAA NCEI); at least $1.31 billion (Dominica)|34 missing in Dominica. Puerto Rico's toll comes from a 2018 George Washington University study.
+AL152022|None reported|About $100 million (Belize)|
+AL152023|None reported|None reported|
+AL152024|13, including at least 7 direct (Mexico)|Not stated|
+AL162005|1 direct, 1 indirect|About $35 million insured (U.S.)|
+AL162007|163, with 59 missing (Dominican Republic, Haiti, Jamaica, Cuba, Bahamas)|Not totaled; $77.7 million in crop losses (Dominican Republic)|Haiti's count ranged from 57 to 103.
+AL162008|9 direct (Central America)|Not stated|
+AL162010|13 (Jamaica)|About $235 million (Jamaica infrastructure)|
+AL162016|18 direct (Central America)|Not totaled; about $15 million to Costa Rica coffee|
+AL162017|45 direct (Central America), 9 missing|Not stated|
+AL162019|None direct; 3 indirect (U.S.)|About $125 million (U.S., NOAA NCEI)|
+AL162020|None reported|Minor, with significant crop losses (Belize)|
+AL162023|None reported|About $450 million (U.S., NOAA NCEI)|
+AL162024|At least 8 direct (Cuba), 2 missing|Over $50 million (Aon)|
+AL172007|22 direct (Dominican Republic), 2 in Haiti, 1 in Puerto Rico|Not stated|
+AL172008|None reported|Severe on Cayman Brac; no official estimate|
+AL172012|1 direct (Guadeloupe)|None significant|
+AL172017|None as a tropical cyclone|About $7 million insured (Ireland)|3 deaths in Ireland after it became extratropical.
+AL172019|None as a tropical cyclone|About $400 million (U.S., NOAA NCEI)|As a post-tropical cyclone it caused 1 death in Tennessee.
+AL172020|2 direct (rip currents, U.S.)|About $50 million (Bermuda)|
+AL172022|None direct; 5 indirect (Florida)|About $1 billion (U.S., NOAA NCEI)|
+AL172023|None reported|Significant flooding (Guadeloupe, Martinique, Antigua)|
+AL172024|None reported|Minor (Azores)|
+AL182005|7 direct, at least 55 indirect (Texas)|About $12 billion (U.S.)|
+AL182010|1 direct|Minor|
+AL182011|None reported|None significant|
+AL182012|147 direct (72 U.S.)|About $50 billion (U.S., preliminary)|
+AL182024|At least 2 direct (Jamaica)|About $1 billion (Cuba, preliminary)|
+AL192010|1 direct, 1 indirect (Belize)|Not totaled; about $32 million to Belize citrus|
+AL192020|4 direct (U.S.)|About $7.3 billion (U.S., NOAA NCEI)|
+AL192024|At least 9 direct (7 Honduras, 2 Nicaragua)|Not totaled; about $18 million crop losses|
+AL202005|80 in Mexico (government); total impossible to determine|Not stated|Estimates for Mexico and Central America mostly run 1,000 to 2,000, mostly in Guatemala, from rains Stan was embedded in.
+AL202020|3 direct (2 Puerto Rico, 1 New Jersey)|$20 million or less (Aon)|
+AL202023|None reported|Minor (Lesser Antilles)|
+AL212010|44 (Lesser and Greater Antilles)|About $336 million (St. Lucia)|
+AL212021|None as a tropical cyclone|None reported|Its precursor extratropical low caused 1 death in New Jersey.
+AL222005|None reported|Under the insured-loss threshold (U.S.)|
+AL222020|1 direct (Texas)|About $225 million (U.S., NOAA NCEI)|
+AL242020|None as a subtropical cyclone|Damage in Portugal|Its remnants caused 1 death in Spain.
+AL252005|23 direct (12 Haiti, 5 Florida, 4 Mexico, 1 Jamaica, 1 Bahamas)|About $21 billion (U.S., revised 2011); severe damage in Yucatán|
+AL252020|6 direct (Mexico)|Not stated|
+AL262005|26 (17 Haiti, 9 Dominican Republic)|Not stated|Media reports; mostly mudslides.
+AL262020|2 direct, 2 indirect (U.S.); 2 indirect (Mexico)|About $2.9 billion (U.S., NOAA NCEI)|
+AL272005|None reported|Extensive on Providencia (Colombia); details unknown|
+AL272020|1 direct (rip current, U.S.)|Not stated|
+AL282005|37 (34 Honduras, 3 Belize)|Not totaled; $13–18 million banana crop losses|
+AL282020|5 direct, 2 indirect (U.S.)|About $4.4 billion (U.S., NOAA NCEI)|
+AL292005|None as a tropical or subtropical storm|None reported|As an extratropical low it caused 7 deaths in and near the Canary Islands.
+AL292020|At least 165 direct, over 100 missing (Central America and Mexico); 7 direct, 3 indirect (U.S.)|About $6.8 billion (Central America, Aon); about $1.5 billion (U.S., NOAA NCEI)|Counts are uncertain and likely low.
+AL312020|67 direct, 17 indirect, 41 missing|About $1.4 billion (Aon)|
+CP012009|None reported|None reported|
+CP012014|None as a tropical cyclone|None reported|After it dissipated, a thunderstorm outflow linked to its remnant moisture killed a swimmer near Maui.
+CP012018|None reported|Not stated (remote atolls)|
+CP012024|None reported|Downed trees and power lines (Hawaii)|
+CP022014|None reported|Minor (Hawaii)|
+EP012005|1 direct (Nicaragua)|Not stated|
+EP012008|2 direct, 7 indirect, 9 missing|About $33 million (Costa Rica)|
+EP012010|About 190 (160 Guatemala, 18 Honduras, 12 El Salvador)|About $1.1 billion (Central America)|Direct and indirect deaths not separated.
+EP012022|9, with 6 missing (Oaxaca, Mexico)|Not stated|
+EP022007|None reported|Over $50 million in crop damage (Mexico)|
+EP022009|1 (Mexico)|Minimal|
+EP022011|1 direct, 3 indirect (Mexico)|Not stated|
+EP022013|3 direct (Mexico)|Not stated|
+EP022014|None as a tropical cyclone|Not stated|Flooding and landslides from its precursor in Guatemala.
+EP022017|6 direct (Mexico)|Not stated|
+EP022020|40 (30 El Salvador, 5 Guatemala, Honduras)|Not stated|Combined with continuing effects of Atlantic storm Cristobal and other heavy rain.
+EP022022|None known|Minor beach erosion|
+EP022025|None reported|None significant|
+EP032012|3 direct (Mexico)|About $113 million requested for repairs (Oaxaca)|Some sources report at least 7 deaths.
+EP032015|None attributed|About $326,000 (coastal Mexico)|
+EP032018|None reported|Minor|
+EP042016|2 direct (rough surf, Hawaii)|None reported|
+EP042017|None reported|Some flooding (Guerrero)|
+EP042021|3 direct (lightning, Mexico)|Over $50 million (Mexico, Aon)|
+EP042025|None known|About $40 million (Acapulco area, media report)|
+EP052013|2 direct, 2 missing (Mexico)|Not stated|
+EP052015|None attributed|None attributed|
+EP052021|2 direct (Mexico)|Not stated|
+EP052023|None directly caused|Not stated|The pressure pattern around Dora contributed to the winds behind the August 2023 Maui wildfires (over 100 deaths), which the report counts as indirect impacts.
+EP052025|1 direct, 1 indirect (Mexico)|About $119 million (Oaxaca crops)|
+EP062013|None reported|Minor (Hawaii)|
+EP062025|1 direct (Mexico)|Not stated|
+EP072025|None reported|None reported|
+EP082023|None reported|None reported|
+EP092011|3 direct (fishermen, Mexico)|Minor|
+EP092013|None direct; 1 indirect (California, from its remnants)|At least $300,000 (Las Vegas suburbs) from its remnant moisture|
+EP092014|1 direct (Kauai, Hawaii)|$148–325 million (Hawaii)|
+EP092023|3 direct (2 Mexico, 1 California)|About $900 million (U.S.)|
+EP092024|None direct|Some damage (Sinaloa, Baja California Sur)|
+EP102011|9 (Mexico)|Not stated|
+EP102013|None direct; 1 indirect (Mexico)|Not stated|
+EP102014|None reported|None reported|
+EP102023|None reported|None reported|
+EP102024|29 (Mexico, mostly direct)|About $2.45 billion (Gallagher Re)|
+EP102025|None reported|None reported|
+EP112006|5 (Baja California)|Not stated; hundreds of homes destroyed|
+EP112007|9 direct, 4 missing (Mexico)|About $25 million (media)|
+EP112008|1 (Baja California)|Not stated|
+EP112017|None reported|None reported|
+EP112018|4 (Mexico)|Not stated|
+EP112024|2 direct (Veracruz, Mexico)|Not stated|
+EP122010|None reported|Flooding in Sonora and Sinaloa; no estimate|
+EP122018|None reported|None reported|
+EP122020|6 direct (Mexico)|At least $50 million (Aon)|
+EP122022|4 direct (Mexico), 1 (California)|Not totaled; $12 million for road repairs (Mulegé)|
+EP122025|None confidently attributed|Not stated|
+EP132006|4 direct, 1 missing (Mexico)|Not stated|
+EP132008|None as a tropical cyclone|About $15.5 million (Sonora), from its remnants|
+EP132009|1 (Baja California Sur)|Widespread on the Baja California peninsula; no estimate|
+EP132013|123 (Mexico), at least 104 direct|$200–685 million insured (Mexico)|Combined with Atlantic Hurricane Ingrid, one of Mexico's worst flood disasters.
+EP132014|4 direct (California and Mexico)|About $20 million (U.S.)|
+EP132020|None direct; 1 indirect (Mexico)|Not stated|
+EP132022|1 direct (Mexico)|Not stated|
+EP132025|None direct; 1 indirect (Mexico)|Not stated|
+EP142014|3 (Baja California)|Not stated|
+EP142017|5 direct, 2 indirect (Mexico)|Not stated|
+EP142018|1 direct (Kauai, Hawaii)|At least $20 million in public infrastructure (Hawaii)|
+EP142021|3 direct (Mexico)|At least $125 million (Mexico, Aon)|
+EP142022|2, 1 missing (Mexico)|Not significant|
+EP142025|None reported|None reported|
+EP152008|5 direct (Sonora, Mexico)|Not stated|
+EP152014|11 direct (Mexico)|About $1 billion (Mexico, preliminary)|The most destructive tropical cyclone on record for Baja California Sur.
+EP152015|None directly|None|Moisture partly from Linda fed flash floods in Utah that killed 19 (7 in Zion National Park, 12 in Hildale).
+EP152016|5 direct (fishermen, Gulf of California)|About $95 million (Mexico)|
+EP152017|None reported|None reported|
+EP152019|1 (Mexico)|Significant local crop damage|
+EP152021|1 direct (Mexico)|About $10 million (Mexico)|
+EP152023|3 direct (Mexico)|At least $77.6 million (Jalisco)|
+EP162012|None reported|Not totaled; about $15 million in road damage (La Paz)|
+EP162015|None reported|About $17.7 million (Sinaloa)|
+EP162017|1 (Mexico, unconfirmed)|About $13 million|
+EP162019|6 direct (Mexico)|Tens of millions of dollars expected|
+EP162021|None direct in Mexico; 2 in Texas from its remnants|Widespread flooding (Mexico)|
+EP162022|None reported|At least $600,000 (Mexico, preliminary)|
+EP162023|2 direct (Mexico)|Not stated|
+EP172006|4 (Mexico)|Minor|
+EP172013|None reported|Some flooding (Guerrero)|
+EP172014|2 (Mexico)|About $7.6 million (Guerrero)|
+EP172015|None reported|About $30 million (Guaymas)|
+EP172018|None reported|Minor (Hawaii)|
+EP172021|1 direct (Mexico)|Not stated|
+EP172023|None direct; 3 indirect (Mexico)|About $11.1 million (Baja California Sur)|
+EP172025|None attributed|Localized flooding (Mexico)|
+EP182013|2 direct (Mexico)|Not stated|
+EP182023|At least 52, with 32 missing (Mexico)|$12–16 billion (Mexico)|The strongest landfall on record on Mexico's Pacific coast; the final toll could be much higher.
+EP192018|8 direct (Mexico)|Not stated|
+EP192022|3 direct, 1 indirect (Mexico)|Not totaled; over $3.5 million set aside (Nayarit)|
+EP192023|4 direct (3 El Salvador, 1 Honduras)|About $45 million (Aon)|
+EP202009|2 (high surf, Mexico)|Not stated|
+EP202014|7 direct (Mexico)|Not stated|
+EP202015|2 direct, 4 indirect (Mexico)|About $325 million (Mexico, preliminary)|
+EP232018|11 (Oaxaca, Mexico)|Not stated|
+EP242018|4 direct (Nayarit, Mexico)|At least $536 million (Mexico)|More than 100,000 people displaced.
+AL052010|None directly|Not stated|Two people drowned in rip currents after heart attacks, well east of the low's centre.
+EP112010|38 (Guatemala, mudslides)|Not stated|
+EP122011|36 direct (Guatemala)|Not stated|Many more deaths in Central America came from a broader rain event.
+AL212020|None directly|None reported|Its precursor tropical wave caused a flood drowning in Praia, Cabo Verde.
+AL122024|None as a tropical cyclone|Not stated|Its extratropical remnant brought flooding and power outages to Portugal, Spain and France; 1 person drowned off southern France.
+AL012020|None reported|Minor (Grand Bahama)|Rip currents prompted 70 water rescues in Volusia County, Florida.

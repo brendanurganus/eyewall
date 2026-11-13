@@ -3,6 +3,7 @@
 // distance fog colour and image-based lighting of the yacht.
 import * as THREE from 'three';
 import { Pass, fsMat, rt, noise3D } from './gl.js';
+import { sunLux } from './astro.js';
 
 export const PANO_GLSL = `
 vec2 panoUV(vec3 d){
@@ -16,26 +17,29 @@ varying vec2 vUv;
 uniform sampler3D uNoise;
 uniform vec3 uCamRel, uSunDir, uSunCol, uAmbCol, uWindKm;
 uniform sampler2D uCov; uniform vec4 uSatW, uSatC; uniform vec2 uSatEye; uniform float uUseSat;
+uniform vec3 uGlow;
 uniform int uMaxSteps; uniform vec2 uFrontDir; uniform float uFrontPos, uSkyCut, uSunI, uEyeR, uRm, uCdoR, uOuterR, uTime, uMode, uCover, uCirrus, uRain, uSpin, uHub, uFront, uDark;
 const float RE = 6371., RA = 6471.;
 const vec3 BR = vec3(5.8e-3, 13.5e-3, 33.1e-3); const float BM = 21e-3;
+const vec3 BO = vec3(0.65e-3, 1.881e-3, 0.085e-3);   // ozone absorption (Hillaire 2020): keeps twilight skies blue
+float ozone(float h){ return max(0., 1. - abs(h - 25.)/15.); }
 vec2 rsi(vec3 ro, vec3 rd, float R){ float b = dot(ro,rd), c = dot(ro,ro)-R*R, h = b*b-c; if(h<0.) return vec2(1e9,-1e9); h = sqrt(h); return vec2(-b-h,-b+h); }
 vec3 atmosphere(vec3 rd, out vec3 trans){
   vec3 ro = vec3(0., RE + 0.03 + uCamRel.y, 0.);
   float tmax = rsi(ro, rd, RA).y; vec2 g = rsi(ro, rd, RE); if (g.x > 0.) tmax = min(tmax, g.x);
-  float dt = tmax/12., oR = 0., oM = 0.; vec3 sR = vec3(0.), sM = vec3(0.);
+  float dt = tmax/12., oR = 0., oM = 0., oO = 0.; vec3 sR = vec3(0.), sM = vec3(0.);
   for (int i = 0; i < 12; i++){
     vec3 p = ro + rd*(float(i)+0.5)*dt; float h = length(p)-RE;
-    float dR = exp(-h/8.)*dt, dM = exp(-h/1.2)*dt; oR += dR; oM += dM;
+    float dR = exp(-h/8.)*dt, dM = exp(-h/1.2)*dt; oR += dR; oM += dM; oO += ozone(h)*dt;
     vec2 gs = rsi(p, uSunDir, RE); if (gs.x > 0. && gs.y > 0.) continue;
-    float tl = rsi(p, uSunDir, RA).y, dl = tl/4., lR = 0., lM = 0.;
-    for (int j = 0; j < 4; j++){ float hq = length(p + uSunDir*(float(j)+0.5)*dl)-RE; lR += exp(-hq/8.)*dl; lM += exp(-hq/1.2)*dl; }
-    vec3 att = exp(-(BR*(oR+lR) + BM*1.1*(oM+lM)));
+    float tl = rsi(p, uSunDir, RA).y, dl = tl/4., lR = 0., lM = 0., lO = 0.;
+    for (int j = 0; j < 4; j++){ float hq = length(p + uSunDir*(float(j)+0.5)*dl)-RE; lR += exp(-hq/8.)*dl; lM += exp(-hq/1.2)*dl; lO += ozone(hq)*dl; }
+    vec3 att = exp(-(BR*(oR+lR) + BM*1.1*(oM+lM) + BO*(oO+lO)));
     sR += dR*att; sM += dM*att;
   }
   float mu = dot(rd, uSunDir), pR = 0.0596831*(1.+mu*mu), gg = 0.76;
   float pM = 0.1193662*(1.-gg*gg)*(1.+mu*mu)/((2.+gg*gg)*pow(1.+gg*gg-2.*gg*mu, 1.5));
-  trans = exp(-(BR*oR + BM*1.1*oM));
+  trans = exp(-(BR*oR + BM*1.1*oM + BO*oO));
   return uSunI*(sR*BR*pR*1.5 + sM*BM*pM);
 }
 float gT = 0.;
@@ -154,20 +158,56 @@ void main(){
     t += dt;
   }
   vec3 tr; vec3 sky = atmosphere(rd, tr);
-  L += T*sky*uSkyCut;
+  L += T*(sky + uGlow*(0.55 + 0.45*(1.-max(rd.y, 0.))))*uSkyCut; // airglow + starlight floor
   gl_FragColor = vec4(L, T*dot(tr, vec3(0.333)));
 }`;
 
 const BG_VS = `varying vec3 vDir; uniform mat4 uInvProj, uCamWorld;
 void main(){ vec4 v = uInvProj*vec4(position.xy, 1., 1.); vDir = mat3(uCamWorld)*(v.xyz/v.w); gl_Position = vec4(position.xy, 1., 1.); }`;
 const BG_FS = PANO_GLSL + `
-varying vec3 vDir; uniform sampler2D uPano; uniform vec3 uSunDir, uSunCol; uniform float uLod;
+varying vec3 vDir; uniform sampler2D uPano; uniform vec3 uSunDir, uSunCol, uSunTrue, uMoonDir, uMoonCol; uniform float uLod, uMoonKey, uStars, uPix; uniform mat3 uEq;
+float h1(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7)))*43758.5453); }
+float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
+  return mix(mix(h1(i), h1(i+vec2(1.,0.)), f.x), mix(h1(i+vec2(0.,1.)), h1(i+vec2(1.,1.)), f.x), f.y); }
+// Procedural star field fixed to the celestial sphere (not a real catalogue). Counts follow roughly
+// N(<m) ~ 3^m down to magnitude 6.5; radiance is relative to a magnitude-0 star.
+vec3 stars(vec3 e){
+  const float ROWS = 64., COLS = 128.;
+  float ra = atan(e.y, e.x), sd = clamp(e.z, -1., 1.);
+  vec2 c = floor(vec2((ra/6.2831853 + 0.5)*COLS, (sd*0.5 + 0.5)*ROWS));   // one star at most per cell,
+  if (h1(c) > 0.72) return vec3(0.);                                        // kept off the cell edges, so
+  vec2 pos = c + 0.1 + 0.8*vec2(h1(c + 3.1), h1(c + 7.7));                  // only this cell can light the pixel
+  float ra2 = (pos.x/COLS - 0.5)*6.2831853, sd2 = pos.y/ROWS*2. - 1., cd = sqrt(1. - sd2*sd2);
+  vec3 s = vec3(cd*cos(ra2), cd*sin(ra2), sd2);
+  float dd = length(s - e), sig = uPix*0.75;
+  if (dd > sig*5.) return vec3(0.);
+  float m = max(-1.2, 6.5 + log(max(h1(c + 11.1), 1e-5))/1.0986);
+  vec3 tint = mix(vec3(0.78, 0.86, 1.12), vec3(1.12, 0.96, 0.78), h1(c + 5.5));
+  return tint*pow(10., -0.4*m)*exp(-0.5*dd*dd/(sig*sig))/(6.2831853*sig*sig);
+}
 void main(){
   vec3 d = normalize(vDir);
   vec4 p = textureLod(uPano, panoUV(d), uLod);
   float mu = dot(d, uSunDir);
-  float disc = smoothstep(0.99996, 0.999985, mu);
+  float disc = smoothstep(0.99996, 0.999985, mu)*(1. - uMoonKey);   // the moon gets its own disc below
   vec3 c = p.rgb + uSunCol*p.a*(disc*900. + 6.*pow(max(mu,0.), 900.) + 0.4*pow(max(mu,0.), 60.));
+  if (uStars > 0. && d.y > -0.02 && p.a > 0.003) c += uStars*p.a*stars(uEq*d);
+  // the moon: phase from the true sun direction (Lommel-Seeliger lunar reflectance), light maria, earthshine
+  const float MR = 0.00453;  // angular radius, rad
+  float cm = dot(d, uMoonDir);
+  if (cm > 0.99985 && dot(uMoonCol, vec3(1.)) > 0.) {
+    vec3 rt = normalize(cross(uMoonDir, vec3(0.0001, 1., 0.))), up = cross(rt, uMoonDir);
+    vec2 q = vec2(dot(d, rt), dot(d, up))/MR; float r = length(q);
+    float aa = 1. - smoothstep(1. - uPix/MR, 1. + uPix/MR, r);
+    if (aa > 0.) {
+      float z = sqrt(max(1. - r*r, 0.)); vec3 n = q.x*rt + q.y*up - z*uMoonDir;
+      float mu0 = max(dot(n, uSunTrue), 0.);
+      float ls = mu0/(mu0 + z + 1e-3);
+      vec2 mq = q*1.6 + vec2(0.3, -0.2);
+      float alb = 0.95 - 0.38*smoothstep(0.45, 0.7, vn(mq) *0.65 + vn(mq*2.3 + 4.)*0.35);
+      c += uMoonCol*p.a*aa*(ls*2.*alb + 0.0025);
+    }
+  }
   gl_FragColor = vec4(c, 0.);
 }`;
 
@@ -183,6 +223,9 @@ void main(){
   gl_FragColor = vec4(c, 1.);
 }`;
 
+// Clear-night sky (airglow + integrated starlight), radiance per unit of o.glow; slightly blue-green.
+const NIGHT_GLOW = new THREE.Vector3(0.62, 0.78, 1.0), NIGHT_AMB = new THREE.Vector3(0.5, 0.62, 0.8);
+
 export class Sky {
   constructor(renderer, low) {
     this.r = renderer; this.pass = new Pass(renderer);
@@ -194,11 +237,12 @@ export class Sky {
       uSunCol: { value: new THREE.Vector3(1, 1, 1) }, uAmbCol: { value: new THREE.Vector3(0.2, 0.3, 0.5) }, uWindKm: { value: new THREE.Vector3(0.02, 0, 0) },
       uSunI: { value: 20 }, uEyeR: { value: 23 }, uRm: { value: 37 }, uCdoR: { value: 180 }, uOuterR: { value: 420 }, uTime: { value: 0 }, uMode: { value: 0 },
       uCover: { value: 0.3 }, uCirrus: { value: 0.5 }, uRain: { value: 1 }, uCov: { value: null }, uSatW: { value: new THREE.Vector4(0, 0, 1, 1) }, uSatC: { value: new THREE.Vector4(0, 0, 1, 1) }, uSatEye: { value: new THREE.Vector2() }, uUseSat: { value: 0 },
-      uMaxSteps: { value: 60 }, uFrontDir: { value: new THREE.Vector2(0, 1) }, uFrontPos: { value: -200 }, uSkyCut: { value: 1 }, uSpin: { value: 0.077 }, uHub: { value: 1 }, uFront: { value: 0 }, uDark: { value: 1 },
+      uGlow: { value: new THREE.Vector3() }, uMaxSteps: { value: 60 }, uFrontDir: { value: new THREE.Vector2(0, 1) }, uFrontPos: { value: -200 }, uSkyCut: { value: 1 }, uSpin: { value: 0.077 }, uHub: { value: 1 }, uFront: { value: 0 }, uDark: { value: 1 },
     };
     this.mat = fsMat(PANO_FS, this.u);
     this.bgMat = new THREE.ShaderMaterial({ vertexShader: BG_VS, fragmentShader: BG_FS, depthTest: false, depthWrite: false,
-      uniforms: { uPano: { value: this.pano.texture }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uSunDir: this.u.uSunDir, uSunCol: { value: new THREE.Vector3() }, uLod: { value: 0 } } });
+      uniforms: { uPano: { value: this.pano.texture }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uSunDir: this.u.uSunDir, uSunCol: { value: new THREE.Vector3() }, uLod: { value: 0 },
+        uSunTrue: { value: new THREE.Vector3(0, 1, 0) }, uMoonDir: { value: new THREE.Vector3(0, -1, 0) }, uMoonCol: { value: new THREE.Vector3() }, uMoonKey: { value: 0 }, uStars: { value: 0 }, uPix: { value: 0.002 }, uEq: { value: new THREE.Matrix3() } } });
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
     this.bg = new THREE.Mesh(g, this.bgMat); this.bg.frustumCulled = false; this.bg.renderOrder = -1000;
@@ -218,17 +262,35 @@ export class Sky {
     const k = Math.min(1, Math.max(0, (d + 1.5) / 1.5));
     return tau.map((t) => Math.exp(-m * t) * k);
   }
-  setSun(el, az) {
+  setSun(el, az, floor = true) {
     this.sunDir.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
     const wb = Sky.sunTrans(1.3), t = Sky.sunTrans(el).map((v, i) => v / wb[i] * wb[0]);   // white-balanced to a high sun
     this.sunGround.set(t[0], t[1], t[2]).multiplyScalar(this.sunI);
     // clouds sit higher: slightly less reddened
-    const t2 = Sky.sunTrans(Math.max(el, -0.012) + 0.02).map((v, i) => v / wb[i] * wb[0]);
+    const ce = el >= -0.012 ? el + 0.02 : el + 0.02 + Math.min(0.035, (-0.012 - el) * 0.6); // tops see ~3 deg below our horizon
+    const t2 = Sky.sunTrans(ce).map((v, i) => v / wb[i] * wb[0]);
     this.u.uSunCol.value.set(t2[0], t2[1], t2[2]).multiplyScalar(this.sunI);
     const day = Math.min(1, Math.max(0, (el + 0.1) / 0.3));
     const dusk = Math.min(1, Math.max(0.0, (el + 0.16) / 0.2));
-    this.u.uAmbCol.value.set(0.055 * day + 0.004, 0.105 * day * (0.6 + 0.4 * dusk) + 0.006, 0.19 * (0.25 * dusk + 0.75 * day) + 0.012).multiplyScalar(this.sunI * 0.1);
+    const f = floor ? 1 : 0;
+    const tw = el >= 0 ? 1 : sunLux(el * 57.29578) / sunLux(0); // twilight falls ~10x per 2-3 deg
+    this.u.uAmbCol.value.set(0.055 * day + 0.004 * f, 0.105 * day * (0.6 + 0.4 * dusk) + 0.006 * f, 0.19 * (0.25 * dusk + 0.75 * day) + 0.012 * f).multiplyScalar(this.sunI * 0.1 * (floor ? 1 : tw));
     this.bgMat.uniforms.uSunCol.value.copy(this.u.uSunCol.value).multiplyScalar(0.02);
+  }
+  // Storm-scene lighting from the real sun and moon (see main.js lighting()). The key light is the sun or,
+  // at night, the moon; everything is pre-exposed by o.pre so night values stay inside half-float range.
+  setLight(o) {
+    this.sunI = 20 * o.gain; this.u.uSunI.value = this.sunI;
+    this.setSun(o.el, o.az, false);
+    this.u.uAmbCol.value.addScaledVector(NIGHT_AMB, o.glow);
+    this.u.uGlow.value.copy(NIGHT_GLOW).multiplyScalar(o.glow);
+    const b = this.bgMat.uniforms;
+    b.uMoonKey.value = o.moonKey ? 1 : 0; b.uSunTrue.value.copy(o.sunTrue); b.uMoonDir.value.copy(o.moonDir);
+    b.uMoonCol.value.copy(o.moonCol); b.uStars.value = o.stars; b.uEq.value.copy(o.eq); b.uPix.value = o.pix;
+  }
+  resetLight() {
+    this.sunI = 20; this.u.uSunI.value = 20; this.u.uGlow.value.set(0, 0, 0);
+    const b = this.bgMat.uniforms; b.uMoonKey.value = 0; b.uMoonCol.value.set(0, 0, 0); b.uStars.value = 0;
   }
   update(time, full) {
     this.u.uTime.value = time;

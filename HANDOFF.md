@@ -20,27 +20,32 @@ This file says what exists, what is verified, what is not, and what is left.
 A single-page WebGL 2 app (three.js r160), bundled into one HTML file.
 
     npm install
-    node build.mjs            # -> dist/index.html (minified, images embedded)
+    node build.mjs            # -> dist/index.html (minified, globe images embedded)
+                              #    + dist/sat/<id>/ storm photos copied from ./satlib (see Stage 4)
     node build.mjs --dev      # unminified
 
 Published as a Claude artifact titled "Eyewall prototype: opening, dive and Katrina".
-Flow: shore opening (16.5 s) -> dive from space (11 s) -> drivable Katrina scene.
+Flow: shore opening (16.5 s) -> globe and storm archive -> pick a storm and a point on its track ->
+dive from space (11 s) -> drivable storm scene at that time, storm time running. B returns to the globe.
+The artifact is multi-file: index.html plus sat/<id>/{wide,core}.jpg, loaded on launch (the cloud-cover
+map is derived from wide.jpg in the browser). Artifact versions hold at most 512 files.
 
-URL hashes: `#storm` skips straight to the storm scene; `#low` is a cheap mode for software
+URL hashes: `#globe` opens on the globe; `#storm` skips straight to the Katrina storm scene; `#low` is a cheap mode for software
 renderers (used by the test harness).
 
 ### Source map (`src/`)
 
 | File | What it does |
 |---|---|
-| `main.js` | Everything is wired here: modes (`intro`, `dive`, `storm`), main loop, HUD, storm map, lightning, quality governor, intro timeline, dive camera path. |
-| `storm.js` | Storm reconstruction. `prepareTrack`, `stormAt(track, timeMs)`, `windAt`, `seaAt`, `precipAt`, `sunPosition`. No rendering. |
+| `main.js` | Everything is wired here: modes (`intro`, `dive`, `storm`), main loop, storm clock and speed controls, storm placement by lat/lon, sun/moon lighting (`lighting()`), HUD, storm map, lightning, quality governor, intro timeline, dive camera path. |
+| `astro.js` | Moon position and phase, sidereal time, approximate natural light levels (lux) by sun elevation. No rendering. |
+| `storm.js` | Storm reconstruction. `prepareTrack`, `stormAt(track, timeMs)`, `trackSpan`, `windAt`, `seaAt`, `precipAt`, `sunPosition`. No rendering. |
 | `fft.js` | CPU spectral wave cascade (largest waves). Physics samples this, so the boat rides the surface that is drawn. |
 | `oceanSim.js` | Wave simulation: cascade 0 on CPU, cascades 1-2 by GPU FFT; displacement, slopes, foam. `setSea`, `setScale`. |
 | `ocean.js` | Ocean mesh and shader: reflection, crest scattering, foam regimes, wind streaks, wake, shore mode. |
-| `sky.js` | Atmosphere + ray-marched clouds into a panorama used for background, reflections, fog colour and yacht lighting. `SKY_COMMON` holds the cloud model shared with the dive. |
+| `sky.js` | Atmosphere (Rayleigh, Mie, ozone) + ray-marched clouds into a panorama used for background, reflections, fog colour and yacht lighting. Background pass draws the sun, moon disc with phase, and stars. `setLight()` for the storm scene, `setSun()` for the intro. `SKY_COMMON` holds the cloud model shared with the dive. |
 | `dive.js` | Full-screen ray-march of the storm from any altitude over a curved Earth, plus the NASA photo. |
-| `post.js` | Fog, rain streaks, motion blur, glare, auto-exposure, tone map, lens droplets. |
+| `post.js` | Fog, rain streaks, motion blur, glare, auto-exposure with night response (dimming, scotopic colour loss), tone map, lens droplets, dissolve for wave-tile rescales. |
 | `yacht.js` | Procedural 52 m motor yacht (original design). |
 | `boat.js` | Boat dynamics, input (keyboard, gamepad), chase camera. |
 | `particles.js` | Spray. |
@@ -54,14 +59,17 @@ renderers (used by the test harness).
    r34[4], r50[4], r64[4], rmw, poci, ...}], eyes:[[time, d1, d2], ...] }`. `tools/katrina.py`
    shows how, from `data/` (or regenerate with `tools/parse.py` + `tools/fdeck.py`).
 2. `const track = prepareTrack(obj); const st = stormAt(track, Date.UTC(...));`
-3. Everything else reads `st`. In `main.js` the time is the constant `T0` and the storm is the
-   module-level `st`: both must become variables for Stage 3 (time progression).
-4. Eye radius: `main.js` averages aircraft fixes within 2.5 h, else falls back to
-   `eyeRadius(st)` = 0.62 x radius of maximum wind.
+3. Everything else reads `st`. In `main.js`, `clock.t` is storm time (UTC ms) and `st = stormNow(clock.t)`
+   is recomputed every frame. `T0` is only the start time; Stage 4's path selector should set `clock.t`
+   and call `SPOTS.Digit1()` (or `teleport`). `track`, `K` (eye fixes) and `SAT_T` are Katrina-specific.
+4. Eye radius (`eyeAt`): aircraft fixes weighted by time difference (Gaussian, sigma 1.5 h, within 6 h),
+   blended into `eyeRadius(st)` = 0.62 x radius of maximum wind as fixes thin out.
 5. Satellite image: see below. Without one, `uUseSat` stays 0 and the analytic cloud model is used.
 
-Coordinates: world x = east, z = south, y = up, metres. The boat stays near the world origin; the
-storm centre is `center` in `main.js`. Storm-relative positions are (e, n) metres east/north.
+Coordinates: world x = east, z = south, y = up, metres. The world origin is pinned to a latitude and
+longitude (`geo`, set on teleport, local flat projection). The storm centre `center` is placed from its
+track position every frame, so it moves past the boat; with "keep pace" (G) the origin moves with the
+storm instead. Sun and moon are computed at the boat's own lat/lon. Storm-relative positions are (e, n) metres east/north.
 Compass heading psi: forward = (sin psi, 0, -cos psi).
 
 ### Satellite image for another storm
@@ -78,6 +86,142 @@ Compass heading psi: forward = (sin psi, 0, -cos psi).
 - The service gives the date, not the capture minute. Night has no visible image.
 - A published Claude artifact cannot fetch images at run time, so images must be bundled there.
   A GitHub Pages copy could fetch them, if the service allows cross-origin requests (not checked).
+
+## Stage 3: time, day/night, moon
+
+- **Clock.** Storm time runs only in the storm scene, at 1x, 10x, 60x or 600x (`[` `]`, P pause, on-screen
+  bar). The storm follows its track and intensity; waves, boat, cloud motion and rain stay real time.
+  It stops at the end of the NOAA track. Note: frame dt is capped at 50 ms, so below 20 fps storm
+  time runs slower than the chosen speed.
+- **Translation velocity** is now each 6-hour segment's velocity blended between segment midpoints, so
+  the wind asymmetry no longer jumps at each fix. Test values moved by at most 0.1 m / 1 kt.
+- **Keep pace (G).** Off by default: the storm (about 12 kt) outruns the yacht, which is realistic.
+  On: the boat is carried with the storm. Owner to decide the default.
+- **Wave tiles** now re-size while driving when the ideal tile differs by more than 45%, under a 0.7 s
+  dissolve. The wave pattern does change at that moment (a visible but hidden swap, and the boat
+  feels it). In a 14 h Katrina run at 600x it happened once.
+- **Satellite photo** (one Terra pass, 28 Aug ~16:25 UTC; the minute is inferred from Terra's orbit)
+  is used only within 12 h of that time; the dive shows the photo only while the sun is up over the
+  storm. Outside that window the analytic clouds are used everywhere (the weak ones).
+
+### Night
+
+Moonlight is about 1/400,000 of sunlight; half-float buffers and the 400x auto-exposure cap cannot
+span that. The standard approach is used:
+1. **Pre-exposure.** `lighting()` computes natural light at the boat (lux): sun by elevation from an
+   approximate USNO-style table, plus moon (`moonLux`), plus a 0.002 lux airglow/starlight floor.
+   Above 1000 lux nothing changes (day renders exactly as before). Below, all natural light is
+   multiplied by `pre = 1000 / lux`.
+2. **Key light.** The sun, until the moon outshines the twilight or the sun is 15 deg down; then the
+   moon (direction, phase-dependent brightness, atmospheric reddening). Same pipeline lights clouds,
+   sea and yacht.
+3. **Night response** (`post.js` EXP_FS): true adaptation level = metered luminance / pre. Below
+   `uLref` (0.001, under the day eyewall's ~0.025) the image darkens as level^0.2 (floor 0.045, so the
+   boat stays findable) and dim areas lose colour with a blue shift (scotopic). Bright lamps keep colour.
+4. **Artificial light is not physical at night**: lit windows x pre^0.2, navigation lights x pre^0.3,
+   lightning x pre^0.18. Physically they would be thousands of times brighter than moonlight; these
+   exponents were set by eye on software-renderer stills.
+5. Twilight fixes in `sky.js`: clouds were always lit as if the sun were at the horizon, and the
+   ambient term barely fell below it. Now cloud tops see the sun until ~3 deg below the horizon and
+   the ambient falls with the twilight table. Ozone absorption added (Hillaire 2020 coefficients).
+6. **Moon**: Astronomical Almanac low-precision series (~0.3 deg) + parallax; phase checked against
+   published 2005 phase times (`node test/astro.mjs`: last quarter 90.1 deg vs 90). Brightness by
+   phase: Krisciunas & Schaefer (1991). Disc at true size (0.26 deg radius), Lommel-Seeliger shading,
+   procedural maria, earthshine. Its brightness is compressed at night (else it is a blown-out blob).
+7. **Stars are procedural** (realistic count by magnitude, fixed to the celestial sphere and rotating
+   with sidereal time), not a real catalogue. No Milky Way.
+
+## Stage 4: globe, archive, path selector, human toll, photos
+
+- **Archive** (`tools/archive.py` -> `src/archive.js`, 2.2 MB): all 793 finalised storms 2005-2025
+  (preliminary 2026 excluded, owner decision), columnar tracks with wind radii, RMW, POCI, eye fixes.
+  `main.js setStorm()` turns an entry into the track `stormAt()` expects; any storm can be launched.
+- **Globe** (`globe.js`): NASA Blue Marble Next Generation (GIBS, 4096x2048, embedded), graded dark and
+  cool; coastlines from the NASA MODIS water mask (lakes and rivers removed for drawing); graticule;
+  every track; selected track as fat lines with fix dots (bigger at landfall); own orbit controls and
+  CPU picking (screen-space distance to track segments). Renders straight to the canvas at full DPR.
+- **Track colours**: the long-standing Wikipedia track-map scheme (owner's choice; NHC has none).
+  Wikipedia has since moved to an accessibility scheme (Cat 4 pink, Cat 5 purple). Not used.
+- **Archive UI** (`globeUI.js`): year, basin, category and name filters; list; info panel with peak,
+  human toll, damage and the NOAA report link; start point by slider or by dragging along the track.
+  Default point: peak intensity.
+- **Launch**: the yacht starts in the eyewall right of the motion if that is open sea; otherwise the
+  nearest bearing round the wall, then 1.4/2/3 x RMW. No sea within 3 x RMW: launch disabled. Sea =
+  NASA MODIS water mask reduced to water connected to the world ocean (`src/assets/water.png`;
+  lakes count as land, tidal bays like Pontchartrain as sea). `node test/land.mjs` checks landfalls.
+- **Human toll** (`tools/toll.py` -> `src/toll.js`): from all 821 NHC/CPHC Tropical Cyclone Reports
+  (pdftotext; "Casualty and Damage Statistics" section; contents pages skipped). 306 storms
+  hand-checked (`tools/toll_review.txt`: deaths | damage | note), 446 automatically "none reported"
+  where the report says so (sample and flagged cases audited), 36 brief depression reports with no
+  deaths mentioned, 5 not compiled (2005-06 Central Pacific reports are on CPHC's site). Wording
+  follows the reports: direct/indirect where given, the agency behind each damage figure, revisions
+  (Katrina: nearly 1,400, revised from 1,800+). Crossover storms (Otto 2016, Bonnie/Julia 2022) use
+  their Atlantic report. The PDFs and extracted text are not in git (re-download: NHC tcr index).
+- **NASA photos** (`tools/satlib.py` -> `satlib/<id>/` not in git, ~70 MB; `tools/satindex.py` ->
+  `src/satindex.js`): one snapshot per major hurricane (174), the daytime pass on its peak day.
+  VIIRS from 2016 (GIBS VIIRS starts late 2015), MODIS Terra before with Aqua filling swath gaps.
+  Eye found in the 3.6-degree close-up (~0.3 km/px), accepted only if clearly darker than the ring
+  15-35 km out; else the photo is placed by the NOAA position (cloud-filled eyes). Katrina keeps the
+  hand-registered Stage 2 set. Used within 12 h of the (estimated) pass time; the dive shows it only
+  in daylight. Every other storm/time uses the analytic clouds.
+  Covering every hurricane-day would be ~1,500 snapshots (~800 MB): too big to ship in an artifact.
+  A hosted copy (GitHub Pages) can instead fetch GIBS live: GIBS sends `Access-Control-Allow-Origin: *`.
+
+## Stage 5: live storms and scheduled refresh
+
+- **Data** (`tools/live.py`, standard library only): NHC `CurrentStorms.json` (active storms, advisory
+  number, position, movement, product links; CPHC storms are in the same feed), the ATCF b-deck
+  `ftp.nhc.noaa.gov/atcf/btk/b<id>.dat` (operational best track so far: same fields as the archive,
+  so the dive runs on it unchanged), and the forecast GIS zip `gis/forecast/archive/<id>_5day_<adv>.zip`
+  (forecast points and the cone polygon, read with a small built-in shapefile/dbf reader). Writes
+  `live.json`: archive-format entries plus a `live` block (advisory, forecast, cone, links).
+  Prints PUBLISH or SKIP last: publish when storms/advisories changed, or once a day as a heartbeat.
+- **Page**: `main.js` fetches `live.json` (next to `index.html`, no-store). Globe draws each live
+  storm's observed track, NHC forecast track (dashed, category dots) and cone (white fill + outline;
+  longitudes unwrapped so cones over the 180th meridian triangulate), and a pulsing marker at the
+  advisory position. Panel: "Live storms" block above the archive (or "no active storms", "feed not
+  set up", "could not be loaded", and a stale warning past 9 h). Live info panel: advisory, now,
+  movement, forecast peak, NHC links, impacts note pointing to NHC/NWS for safety decisions, start
+  point (default: latest fix), Dive in. The dive stops at the latest fix (time bar: "Latest NHC fix");
+  it never plays out the forecast. Footnote says live data is preliminary.
+- **Demo**: `#livedemo` loads `live_demo.json`, a labelled replay of NHC advisory 10 for Hurricane
+  Isaias (9 Oct 2026, Gulf of Mexico): `python3 tools/live.py src/live_demo.json --demo al092026 010`.
+  Note the b-deck has been revised since (85 kt at the fix vs 90 kt in the advisory), so the demo's
+  track and advisory numbers differ slightly; in real time they match.
+- **Refresh**: scheduled tasks (owner decision: hurricane season only, monthly otherwise): every 3 h at
+  :45 past 00/03/06/... UTC from 15 May to 30 Nov (two tasks: Jun-Nov and 15-31 May), and 21:45 UTC on
+  the 1st of Dec-May. Each reads `tools/live.txt` and `live.json` from the artifact, runs the
+  script and republishes `live.json` only (the OverHead pattern). The build writes `dist/tools/live.txt`.
+- **Publishing from dev**: the build writes an empty placeholder `live.json` unless `LIVE=path` is
+  given. Do not republish `live.json` from dev; leave it to the scheduled task (or run
+  `tools/live.py` first and pass `LIVE=`).
+- **Not done**: no NASA photo for live storms (model clouds only); storms that ended this season are
+  not shown until NOAA finalises HURDAT2; watches/warnings and wind-speed probabilities not drawn.
+
+## Stage 6: intro, settings, phone, methodology, buoys (this stage)
+
+- **Intro** (~20 s): shore 0-10.6 s (unchanged look, faster arrival), fade, then `startRise()`: the
+  dive renderer in reverse, straight up over Katrina's centre at the NASA photo's own time
+  (28 Aug 16:25 UTC) from 1.2 km to 1,500 km in 6.2 s, title (smaller, `.eye`) on from ~50 km over the
+  eye; then `startReveal()`: globe at the same spot and altitude, flies out over 4.6 s while
+  `globe.startReveal()/setReveal()` draws every track segment sorted by time, with a year counter.
+  Skippable (button, Space/Enter/Esc); reduced motion goes straight to the globe. Motion blur is off
+  during the climb. Weak spot: 20-100 km up the cloud tops are flat grey (the parked cloud renderer).
+- **Settings** (O, or the time bar's Settings button): readout, map, key help, lens, shake, motion
+  blur, lightning, frame rate, quality (Auto/Low/Medium/High/Max). Kept in localStorage (try/catch).
+  The H/N/L/K/M/T/F keys toggle the same settings.
+- **Phone** (`PHONE`: coarse pointer and short side < 820 px, or `#phone`): level-0 rendering with the
+  governor allowed up to level 1, smaller FFT cascades (64/128/128), touch stick (throttle holds like a
+  lever, rudder springs back), drag to look with the other finger, key help off, compact HUD/map/time
+  bar. Under 760 px wide the globe panels are bottom sheets (archive collapses; info has a close
+  button), the globe draws higher up the screen (view offset), pinch to zoom. Tested by emulation only
+  (`node test/phone.mjs`); not yet on a real phone.
+- **Methodology page** (`src/methodology.html` -> `dist/methodology.html`): sources and terms,
+  methods, the buoy table, calibration, limits, references. `build.mjs` fills `{{...}}` from
+  `data/buoy_results.json`, the eye fixes, toll and photo index; a missing value fails the build.
+  Linked from the globe legend and the settings panel. GIBS acknowledgment wording verified on
+  earthdata.nasa.gov; the 0.93 at-sea factor verified in Harper et al. (2010) itself.
+- **Buoys and calibration**: see Methods below.
 
 ## Data (`data/`), from Stage 1
 
@@ -114,12 +258,28 @@ GIBS acknowledgment text belongs on the methodology page.
   Checked for Katrina at 2005-08-28 18Z: 150 kt at the radius of maximum wind, 902 mb centre,
   radii matched within a few knots in all quadrants. `node test/storm.mjs`.
 - **Wave height and period:** Young (1988) equivalent-fetch model for peak Hs and Tp, plus an
-  analytic spatial shape of my own. **The Young (1988) coefficients in `storm.js` were written
-  from memory and have not been checked against the paper. Check them.**
-- **Buoy check (one buoy, one storm):** NDBC 42040 in Katrina. Model vs observed Hs:
-  5.3/5.1 m (28th 12Z), 10.0/8.6 m (29th 00Z), 11.3/12.3 m (06Z), then the model peaks at
-  12.0 m where the buoy recorded 16.9 m (11Z). Period agrees: 14.1-14.4 s model vs 14.3 s observed.
-  So height is under-predicted at the peak on the right side; period is fine.
+  analytic spatial shape of my own. Coefficients checked in Stage 3 against Young (2017, Atmosphere
+  8:194, eqs 5-7), which restates the 1988 model: fetch polynomial a-f, R' = 22.5e3 log10 R - 70.8e3,
+  Hs law all match. Tp law (0.045 coefficient) agrees with JONSWAP within 1.5% and with the review's
+  energy-frequency relation within ~5%. **Open: the fit covers Vmax 20-60 m/s; the code extrapolates
+  to 78 m/s. Katrina at peak is 72 m/s: 22.0 m as coded vs 18.2 m if clamped. Owner decision.**
+- **Buoy comparison (Stage 6):** `tools/buoys.py` finds every archive hurricane fix within 200 km of
+  an NDBC-owned moored buoy (owner decision) and pulls the buoy's hourly record (36 h before to 24 h
+  after closest approach): 287 storm-buoy cases, 56 buoys, 105 storms (almost all Atlantic).
+  `node test/buoys.mjs` runs the app's model at each buoy; `tools/buoystats.py` -> `data/buoy_results.json`.
+  Pressure: bias -0.3 hPa, RMSE 4.7 hPa, r 0.89. Wind (model converted to the buoy's 8-min mean at its
+  anemometer height: x0.93 per Harper et al. 2010 and a log profile, z0 0.002 m): bias +1.2 m/s, RMSE
+  4.6, r 0.80; within 3 RMW +3.6 m/s (buoys under-read in extreme seas; the model may also be high).
+  Wave height (calibrated): bias +0.2 m, RMSE 1.74 m, r 0.73; near the core +1.4 m too high; far field
+  -0.3 m. Per-case peak: RMSE 2.9 m; for observed peaks >= 8 m the model is 0.6 m low and barely
+  correlated (r 0.16): it gets the scale of the biggest seas right, not each one. Period: bias -0.6 s,
+  RMSE 3.0 s, r 0.34 (weak). Katrina at 42040: 16.9 m observed vs 12.2 m modelled.
+- **Wave calibration:** `WAVE_CAL` in `storm.js`, fitted by `node test/buoycal.mjs` on odd-year
+  storms, checked on even-year storms. Scaling Young's peak down (best plain RMSE, k 0.7) shrank the
+  biggest seas by a third; penalising that pushed the fit the other way and got worse on held-out
+  storms. Kept: Young's peak, the fall-off and asymmetry unchanged, plus a 1.5 m ambient sea added in
+  quadrature (held-out RMSE 1.75 -> 1.62 m, big-sea bias -0.35 -> -0.23 m; near-core bias +1.30 ->
+  +1.48 m, the cost). 2 m scored within 0.5% on the fitting set; 1.5 m has the smaller mean bias.
 - **Wave direction:** dominant waves radiate from the intense-wind region right of the centre and
   components above ~3x peak frequency follow the local wind (Young 2006).
 - **Foam:** whitecaps level off, streaks take over, whiteout by ~40 m/s (Holthuijsen, Powell &
@@ -131,15 +291,17 @@ GIBS acknowledgment text belongs on the methodology page.
 
 ## Known problems, in order of importance
 
-1. **Frame rate on the owner's laptop is unconfirmed.** They reported "about 8 fps" after the sky
-   resolution was raised and the dive added. A quality governor (4 levels) and an fps counter were
-   added in response, but no reading has come back yet. Ask for the counter values first.
+1. **Frame rate on the owner's laptop is unconfirmed.** The owner says "8 fps" was a figure of speech
+   for "looked bad". Governor targets ~30-60 fps (drops a level above 23 ms/frame). Stage 3 adds
+   ~4 microseconds of CPU per frame and little GPU (stars only where clear sky shows at night).
 2. **The 3D clouds are poor** (owner's word: "garbage"). The analytic shapes and coarse noise show.
    The space view was fixed by using the NASA photo; below ~110 km and at sea level the clouds are
    still the weak ones. The proper fix is a games-style volumetric renderer (layered Perlin-Worley
    noise, erosion, temporal accumulation). Not started.
-3. **Only Katrina at one instant has ever been run.** Weak storms, Pacific storms, night and dusk
-   at sea are untested. `OceanSim.setScale` resizes wave tiles on teleport only, not while driving.
+3. **Launch tested for Katrina, Ian, Patricia, Fiona, Henri; no errors.** Weak stages (TS/TD) still
+   draw an eye in the clouds. The storm scene has no land and no shallow-water waves: the yacht
+   starts at sea, but near a coast the sea state is still the deep-water model's. All night and dusk judgements so far are
+   from software-renderer stills: motion and real-GPU colour are unseen.
 4. **No real breaking surf** in the shore opening. Foam lines and a rising waterline stand in.
 5. **Yacht is blocky up close; no shadows anywhere.**
 6. **All development previews were on a software renderer** (SwiftShader, under 1 fps). Motion was
@@ -150,13 +312,29 @@ GIBS acknowledgment text belongs on the methodology page.
 ## Controls (storm scene)
 
 W/S or up/down throttle, A/D or left/right rudder, drag to look, gamepad.
+[ ] storm time slower/faster (1x, 10x, 60x, 600x), P pause storm time, G keep pace with the storm,
+B back to the globe. Globe: drag to turn, wheel to zoom, click a track, drag along the selected track.
 1 eyewall, 2 eye, 3 eye edge, 4 outer bands. H readout, N map, T lightning, L lens droplets,
-K shake, M motion blur, F fps counter, I replay intro, V replay dive. Space/Enter/Esc skips.
+K shake, M motion blur, F fps counter, O settings, I replay intro, V replay dive. Space/Enter/Esc skips.
+Phones: on-screen stick (bottom right), drag elsewhere to look; globe: pinch to zoom.
 
 ## Testing
 
     node test/storm.mjs                      # wind/wave numbers and the buoy comparison
     node test/hs.mjs                         # simulated wave height vs target
+    node test/astro.mjs                      # moon phase vs published 2005 phase times
+    node test/scenes.mjs outDir "label|ISO time|spot|wait s|js"...   # stills at chosen storm times
+    node test/timerun.mjs <ISO> <speed 0-3> <fixedDt> <secs> [spot]  # run storm time, log evolution
+                                             # (FOLLOW=1 for keep-pace). Put dbg.cam off the yacht:
+                                             # the boat sits at the origin.
+    node test/launch.mjs outDir "Name|year|peak or 0-1"...   # globe -> launch -> storm scene
+    node test/land.mjs                       # launch-point land check at landfall times
+    node test/live.mjs outDir [demo|live] [dive]   # live panel + globe over http (FLY=lat,lon,dist)
+    node test/intro.mjs outDir               # intro rise and track reveal frames
+    node test/riseq.mjs                      # frozen rise frames at set heights
+    node test/phone.mjs outDir               # phone emulation: globe portrait, storm landscape + stick
+    node test/buoys.mjs cases.json out.json  # model at every buoy hour (cases from tools/buoys.py)
+    node test/buoycal.mjs cases.json         # wave-shape calibration (CFG='{...};{...}' to score set values)
     HASH='#low' node test/shot.mjs out.png 800 450 15000 "<js before>" "<js to eval after>"
 
 `shot.mjs` drives headless Chrome with software GL. Useful hooks on `window.__ew`:
@@ -166,18 +344,15 @@ frozen test; that is a test artefact.
 
 ## What is left (the brief's build order, minus what is done)
 
-Done: Stage 1; Stage 2 (shore opening, Katrina scene); the dive from Stage 4; a basic readout,
-storm map, lightning, title and fps governor.
+Done: Stage 1; Stage 2 (shore opening, Katrina scene); Stage 3 (storm time, speed controls,
+day/night, moon, stars); Stage 4 (globe, archive, tracks, path selector, human toll, launch and dive,
+photos for majors); Stage 5 (live storms, NHC forecast and cone, scheduled refresh); Stage 6 (full
+intro, settings, phone version, methodology page, buoy comparison and calibration).
 
 Left:
-- **Stage 3:** time progression along the track, speed controls, day/night, moon.
-- **Stage 4:** globe (Blue Marble), archive, category-coloured tracks, path selector, info panels
-  with human toll and damage, launching the dive at the chosen point; the rest of the intro (rise
-  from the beach to space, tracks drawing in date order).
-  - Track palette: no official NHC per-category palette was found in Stage 1. The familiar
-    yellow-to-red scheme appears to be Wikipedia's. Unresolved; the map colours are provisional.
-  - Human toll: NOAA publishes it per storm in PDF reports, not as a table.
-- **Stage 5:** live storms and scheduled refresh. NHC's `CurrentStorms.json` sends no CORS
-  headers, so a GitHub Pages copy cannot fetch it directly either.
-- **Stage 6:** settings panel, phone version, methodology page, buoy comparison across storms and
-  wave-model calibration, GitHub Pages.
+- **GitHub Pages copy**: needs the branch pushed (owner approval). The build output in `dist/` is a
+  static site; `live.json` there would need its own refresh (a GitHub Action could run tools/live.py).
+- **Clouds** (parked by the owner): flat grey cloud tops from low orbit, model-cloud ring/blotches at
+  low altitude in the dive.
+- **Gust factor** is still a 1.2 placeholder; Harper et al. (2010) gives sourced at-sea gust factors.
+- **Real-phone check**: the phone version is tested in emulation only.

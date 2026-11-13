@@ -9,12 +9,12 @@ import { Boat, ChaseCam, Input } from './boat.js';
 import { Spray } from './particles.js';
 import { Shore, terrainJS } from './shore.js';
 import { Dive } from './dive.js';
-import satWide from './sat/wide.jpg';
-import satCore from './sat/core.jpg';
-import satCov from './sat/cov.jpg';
-import satMeta from './sat/meta.json';
-import K from './katrina.js';
-import { prepareTrack, stormAt, seaAt, windAt, precipAt, eyeRadius, sunPosition, KT, NM } from './storm.js';
+import SATIDX from './satindex.js';
+import ARCHIVE from './archive.js';
+import { Globe } from './globe.js';
+import { GlobeUI, pointAtTime } from './globeUI.js';
+import { prepareTrack, stormAt, trackSpan, seaAt, windAt, precipAt, eyeRadius, sunPosition, KT, NM } from './storm.js';
+import { moonPosition, sunLux, moonLux, lstRad, airTrans, SUN_ZENITH_LUX, NIGHT_FLOOR_LUX } from './astro.js';
 
 const $ = (id) => document.getElementById(id);
 const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -22,7 +22,10 @@ const canvas = $('c');
 let renderer;
 try { renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' }); if (!renderer.capabilities.isWebGL2) throw 0; }
 catch (e) { $('msg').style.display = 'flex'; $('msg').textContent = 'This prototype needs WebGL 2 with a hardware graphics card. It could not start in this browser.'; throw e; }
-const LOW = location.hash === '#low';
+// phones (coarse pointer, small screen; or #phone to test): lighter rendering, touch stick, compact panels
+const PHONE = location.hash === '#phone' || (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820);
+const LOW = location.hash === '#low' || PHONE;
+if (PHONE) document.body.classList.add('phone');
 const DPR = Math.min(window.devicePixelRatio || 1, 1.5);
 const Q = { scale: 1, acc: 0, n: 0 };
 let W = innerWidth, H = innerHeight;
@@ -31,7 +34,7 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(48, W / H, 0.5, 200000);
 const sky = new Sky(renderer, LOW); scene.add(sky.bg);
 const noise = noise2D(256);
-const sim = new OceanSim(renderer, [{ N: 128, L: 4000 }, { N: 256, L: 500 }, { N: 256, L: 57 }]);
+const sim = new OceanSim(renderer, PHONE ? [{ N: 64, L: 4000 }, { N: 128, L: 500 }, { N: 128, L: 57 }] : [{ N: 128, L: 4000 }, { N: 256, L: 500 }, { N: 256, L: 57 }]);
 const ocean = new Ocean(sim, sky, noise); scene.add(ocean.mesh);
 const post = new Post(renderer, sky, Math.round(W * Q.scale), Math.round(H * Q.scale));
 const yacht = buildYacht(); scene.add(yacht);
@@ -42,7 +45,7 @@ ocean.u.uBoatOn.value = 1;
 const flashLight = new THREE.DirectionalLight(0xa8c8ff, 0); scene.add(flashLight); scene.add(flashLight.target);
 
 // ---- lightning: in-cloud flashes that light the rain and sea, with an occasional visible stroke ----
-const LT = { next: 5 + Math.random() * 6, t0: -1, strokes: [], I: 0, dir: new THREE.Vector4(0, 0.2, -1, 0), bolt: null, on: true };
+const LT = { next: 5 + Math.random() * 6, t0: -1, strokes: [], I: 0, dir: new THREE.Vector4(0, 0.2, -1, 0), bolt: null, on: true, gain: 1 };
 const boltMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(70, 85, 120), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side: THREE.DoubleSide });
 function makeBolt(x0, z0, top, dist) {
   const pts = [new THREE.Vector3(x0 + (Math.random() - 0.5) * 300, top, z0 + (Math.random() - 0.5) * 300), new THREE.Vector3(x0, 0, z0)];
@@ -77,40 +80,157 @@ function updateLightning(dt, t, zone, distC) {
     for (const [ts, a] of LT.strokes) if (tt >= ts) LT.I += a * Math.exp(-(tt - ts) / 0.045);
     if (tt > LT.dur) { LT.t0 = -1; if (LT.bolt) { scene.remove(LT.bolt); LT.bolt.geometry.dispose(); LT.bolt = null; } }
   }
-  LT.dir.w = LT.I; if (LT.bolt) { LT.bolt.visible = LT.I > 0.03; boltMat.opacity = Math.min(1, LT.I * 1.6); }
-  flashLight.intensity = LT.I * 1.6; flashLight.position.set(boat.x + LT.dir.x * 500, Math.max(LT.dir.y, 0.25) * 500, boat.z + LT.dir.z * 500); flashLight.target.position.set(boat.x, 0, boat.z);
-  ocean.u.uFlash.value = LT.I;
+  LT.dir.w = LT.I * LT.gain; if (LT.bolt) { LT.bolt.visible = LT.I > 0.03; boltMat.opacity = Math.min(1, LT.I * 1.6); }
+  flashLight.intensity = LT.I * 1.6 * LT.gain; flashLight.position.set(boat.x + LT.dir.x * 500, Math.max(LT.dir.y, 0.25) * 500, boat.z + LT.dir.z * 500); flashLight.target.position.set(boat.x, 0, boat.z);
+  ocean.u.uFlash.value = LT.I * LT.gain;
 }
 
-// ---- storm state (Katrina at peak, 2005-08-28 18:00 UTC) ----
-const track = prepareTrack(K);
-const T0 = Date.UTC(2005, 7, 28, 18);
-const st = stormAt(track, T0);
-{ // eye size from NOAA aircraft fixes near this time, when available
-  const near = K.eyes.filter(([t]) => Math.abs(Date.UTC(+t.slice(0, 4), +t.slice(4, 6) - 1, +t.slice(6, 8), +t.slice(8, 10), +(t.slice(10, 12) || 0)) - T0) < 2.5 * 3600e3);
-  st.eyeR = near.length ? (near.reduce((a, e) => a + (e[1] + e[2]) / 2, 0) / near.length / 2) * NM : eyeRadius(st);
-  st.eyeSrc = near.length ? `${near.length} aircraft fixes` : 'estimated';
+// ---- the clock and the storm state ----
+// Storm time runs only in the storm scene. The storm moves along its NOAA track and changes intensity;
+// waves, the boat and the clouds' own motion always run in real time.
+// the current storm: any archive entry (columnar) -> the track object stormAt() expects
+const asTrack = (s) => ({ id: s.id, name: s.name, year: s.year, eyes: s.eyes, pts: s.t.map((t, i) => ({ t, lat: s.lat[i] / 10, lon: s.lon[i] / 10, vmax: s.v[i], pmin: s.p[i], r34: s.r34[i], r50: s.r50[i], r64: s.r64[i], rmw: s.rmw[i], poci: s.poci[i] })) });
+let cur, track, T_START, T_END, eyeFix;
+const tracks = new Map(); const trackOf = (s) => tracks.get(s.id) || tracks.set(s.id, prepareTrack(asTrack(s))).get(s.id);
+function setStorm(s) {
+  cur = s;
+  const n = document.getElementById('note');
+  if (n) n.textContent = s.live ? `Live storm${s.live.demo ? ' (demo replay)' : ''}: reconstructed from NHC's preliminary operational best track up to the latest fix, with parametric wind and wave models. Not recordings, and not for safety decisions.` : 'Conditions are reconstructed from NOAA best-track measurements with parametric wind and wave models. They are not recordings.'; track = trackOf(s); [T_START, T_END] = trackSpan(track);
+  eyeFix = s.eyes.map(([e, d1, d2]) => [Date.UTC(+e.slice(0, 4), +e.slice(4, 6) - 1, +e.slice(6, 8), +e.slice(8, 10), +(e.slice(10, 12) || 0)), ((d1 + d2) / 4) * NM]);
 }
-const r64 = st.r64.reduce((a, b) => a + b, 0) / 4, cdoR = Math.max(st.rm * 3, r64 * 1.2), outerR = st.r34mean * 1.25;
+setStorm(ARCHIVE.find((s) => s.id === 'AL122005'));
+const T0 = Date.UTC(2005, 7, 28, 18); // start: Katrina at peak in the Gulf (Stage 4 adds the path selector)
+const SPEEDS = [1, 10, 60, 600];
+const clock = { t: T0, si: 0, paused: false, follow: false }; // follow: carry the boat along with the storm (G)
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+// Eye radius: NOAA aircraft fixes weighted by closeness in time (Gaussian, sigma 1.5 h, within 6 h),
+// blended into the estimate (0.62 x radius of maximum wind) as the fixes thin out.
+function eyeAt(s, time) {
+  let w = 0, r = 0, n = 0;
+  for (const [tf, rf] of eyeFix) { const dh = (tf - time) / 3600e3; if (Math.abs(dh) > 6) continue; const k = Math.exp(-0.5 * (dh / 1.5) ** 2); w += k; r += k * rf; if (Math.abs(dh) < 2.5) n++; }
+  const est = eyeRadius(s), a = Math.min(1, w);
+  s.eyeR = w > 0 ? (r / w) * a + est * (1 - a) : est;
+  s.eyeSrc = n ? `${n} aircraft fix${n > 1 ? 'es' : ''}` : w > 0.02 ? 'aircraft fixes, interpolated' : 'estimated';
+}
+function stormNow(time) {
+  const s = stormAt(track, time); eyeAt(s, time);
+  const r64 = s.r64.reduce((a, b) => a + b, 0) / 4;
+  s.cdoR = Math.max(s.rm * 3, r64 * 1.2); s.outerR = s.r34mean * 1.25; s.motion = Math.atan2(s.u, s.v) * R2D;
+  return s;
+}
+let st = stormNow(clock.t);
+// World origin is pinned to a latitude/longitude (set on teleport); the storm centre is placed from its
+// track position every frame, so it travels its real path past the boat.
+const geo = { lat0: st.lat, lon0: st.lon, mLon: 111320 };
 const center = { x: 0, z: 0 }; // storm centre in world coords
+const placeStorm = () => { center.x = (st.lon - geo.lon0) * geo.mLon; center.z = -(st.lat - geo.lat0) * 111320; };
+const boatLatLon = () => [geo.lat0 - boat.z / 111320, geo.lon0 + boat.x / geo.mLon];
 const rel = () => ({ e: boat.x - center.x, n: -(boat.z - center.z) });
 let seaS = null;
 function teleport(brgDeg, r, headOff = 35) {
+  st = stormNow(clock.t);
   const b = (brgDeg * Math.PI) / 180, e = r * Math.sin(b), n = r * Math.cos(b);
-  boat.x = 0; boat.z = 0; center.x = -e; center.z = n;
+  boat.x = 0; boat.z = 0;
+  geo.lat0 = st.lat + n / 111320; geo.mLon = 111320 * Math.cos(geo.lat0 * D2R); geo.lon0 = st.lon + e / geo.mLon; placeStorm();
   const s = seaAt(st, e, n);
   boat.psi = ((s.wind.from + headOff) * Math.PI) / 180; boat.u = 3; boat.v = 0; boat.r = 0; boat.wake.length = 0; boat.roll = boat.pitch = 0; boat.vy = boat.vp = boat.vr = 0;
   seaS = { hs: s.hs, tp: s.tp, dx: s.de, dz: -s.dn, wx: s.we, wz: -s.wn, iso: s.iso }; sim.setSea(seaS); sim.setScale(sim.scaleFor(s.tp)); ocean.syncScale();
   chase.init = false; input.look.yaw = 0; sky.first = true; envAge = 1e9; post.ei = 0;
 }
 let envAge = 1e9;
-const motion = (Math.atan2(st.u, st.v) * 180) / Math.PI;
-const SPOTS = { Digit1: () => teleport(motion + 70, st.rm), Digit2: () => teleport(motion + 200, st.eyeR * 0.3, 90), Digit3: () => teleport(motion + 70, st.eyeR * 0.78, 180), Digit4: () => teleport(motion + 80, Math.max(cdoR * 1.25, 230e3)) };
-teleport(motion + 70, st.rm);
+const SPOTS = { Digit1: () => { const sp = seaSpot(st) || { brg: st.motion + 70, r: st.rm }; teleport(sp.brg, sp.r); }, Digit2: () => teleport(st.motion + 200, st.eyeR * 0.3, 90), Digit3: () => teleport(st.motion + 70, st.eyeR * 0.78, 180), Digit4: () => teleport(st.motion + 80, Math.max(st.cdoR * 1.25, 230e3)) };
+teleport(st.motion + 70, st.rm);
+// Where the yacht can start: the eyewall to the right of the motion if that is open sea (NASA MODIS water
+// mask, reduced to water connected to the world ocean), else the nearest bearing round the wall, else further out. null: no open water nearby.
+function seaSpot(s) {
+  const wet = (brg, r) => { const b = brg * D2R, lat = s.lat + (r * Math.cos(b)) / 111320, lon = s.lon + (r * Math.sin(b)) / (111320 * Math.cos(lat * D2R)); return globe.isWater(lat, lon) !== false; };
+  for (const k of [1, 1.4, 2, 3]) for (let d = 0; d <= 180; d += 30) for (const sg of d && d < 180 ? [1, -1] : [1]) { const brg = s.motion + 70 + sg * d; if (wet(brg, s.rm * k)) return { brg, r: s.rm * k, k }; }
+  return null;
+}
+
+// ---- light from the real sun and moon at the boat ----
+// Units: a sun irradiance of 20 is ~107,000 lux. Above L0 the scene renders exactly as before. Below it
+// (dusk, night) everything is pre-exposed by L0 / (natural light) so values stay in half-float range,
+// and post.js applies the eye's night response (darker, less colour). See HANDOFF.md, "Night".
+const L0 = 1000, LUX = 20 / SUN_ZENITH_LUX;
+const LV = { sunTrue: new THREE.Vector3(), moonDir: new THREE.Vector3(), moonCol: new THREE.Vector3(), eq: new THREE.Matrix3(), pix: 0.002, el: 0, az: 0, gain: 1, glow: 0, stars: 0, moonKey: false };
+const dirOf = (v, el, az) => v.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
+const sky$ = { sun: null, moon: null, lux: 0, pre: 1, sunStorm: 0 };
+function lighting(time) {
+  const [lat, lon] = boatLatLon();
+  const sp = sunPosition(time, lat, lon), mn = moonPosition(time, lat, lon);
+  const sunL = sunLux(sp.el * R2D), mL = moonLux(mn), lux = sunL + mL + NIGHT_FLOOR_LUX;
+  const pre = Math.max(1, L0 / lux);
+  // key light: the sun, until the moon outshines the twilight (or the sun is 15 deg down); then the moon
+  const moonKey = sp.el * R2D < -4 && (mL > sunL || sp.el * R2D < -15);
+  LV.moonKey = moonKey; LV.el = moonKey ? mn.el : sp.el; LV.az = moonKey ? mn.az : sp.az;
+  LV.gain = (moonKey ? mn.rel : 1) * pre;
+  dirOf(LV.sunTrue, sp.el, sp.az); dirOf(LV.moonDir, mn.el, mn.az);
+  LV.glow = 4.2e-8 * pre;                                 // airglow + starlight floor (~0.002 lux)
+  LV.stars = 2.54e-6 * LUX * pre;                         // a magnitude-0 star gives 2.54e-6 lux
+  // moon disc radiance (lit part), reddened and dimmed near the horizon; compressed at night so it
+  // reads as a bright disc with its phase visible instead of a blown-out blob
+  const tr = Sky.sunTrans(Math.max(mn.el, -0.02)), wb = Sky.sunTrans(1.3);
+  const phys = (SUN_ZENITH_LUX * 2.5e-6 * LUX / 6.45e-5) * pre * airTrans(mn.el) / Math.max(tr[0] / wb[0], 1e-3);
+  const ref = 12 * 20 * LV.gain * 0.25, mr = mn.el > -0.01 ? phys / (1 + phys / ref) : 0;
+  LV.moonCol.set(tr[0] / wb[0], tr[1] / wb[1], tr[2] / wb[2]).multiplyScalar(mr);
+  const L = lstRad(time, lon), sl = Math.sin(L), cl = Math.cos(L), sf = Math.sin(lat * D2R), cf = Math.cos(lat * D2R);
+  LV.eq.set(-sl, cl * cf, cl * sf, cl, sl * cf, sl * sf, 0, sf, -cf);
+  LV.pix = (camera.fov * D2R) / Math.max(post.h, 1);
+  sky.setLight(LV); post.pre = pre;
+  sky$.sun = sp; sky$.moon = mn; sky$.lux = lux; sky$.pre = pre;
+  sky$.sunStorm = sunPosition(time, st.lat, st.lon).el;
+  return pre;
+}
+// A low sun (or moon) shining through the storm's cloud shield. The sky shader looks only a few km
+// toward the light for cloud in the way, which is right for a high sun but lets a sun near or below the
+// horizon light the deck from underneath (the whole scene turned red at twilight). Here the light's path
+// at cloud level is followed across the shield: dense core (CDO) and banded outer region, and the cloud
+// light is dimmed by that path. Sea-level views only: from above, cloud tops do catch the low sun.
+function shieldLowSun() {
+  const el = LV.el, low = 1 - sm(0.05, 0.2, el); if (low <= 0) return;
+  const px = (boat.x - center.x) / 1e3, pn = -(boat.z - center.z) / 1e3, dx = Math.sin(LV.az), dn = Math.cos(LV.az);
+  const chord = (R) => { const b = px * dx + pn * dn, c = px * px + pn * pn - R * R, h = b * b - c; if (h <= 0) return 0; const q = Math.sqrt(h); return Math.max(0, -b + q) - Math.max(0, -b - q); };
+  const cdo = chord(st.cdoR / 1e3), outer = chord(st.outerR / 1e3);
+  const tau = cdo / 8 + Math.max(0, outer - cdo) / 35;   // km of dense deck / of banded cloud per unit optical depth
+  let f = 1 - low * (1 - Math.exp(-tau));
+  if (mode === 'dive') f += (1 - f) * sm(2e3, 15e3, dv.alt);
+  sky.u.uSunCol.value.multiplyScalar(f); sky.bgMat.uniforms.uSunCol.value.multiplyScalar(f); LV.shield = f;
+}
+// NASA photo of the current storm, if the archive has one (tools/satlib.py: the daytime pass on its
+// peak day; the overpass minute is estimated from the satellite's orbit). Used within 12 h of the pass.
+const sat = { id: null, meta: null, ready: false };
+const satOK = () => sat.ready && sat.id === cur.id && Math.abs(clock.t - sat.meta.t) < 12 * 3600e3;
+function loadSat(id) {
+  if (sat.id === id) return; sat.id = id; sat.ready = false; sat.meta = SATIDX[id] || null;
+  if (!sat.meta) return;
+  const L = new THREE.TextureLoader(), su = sky.u, m = sat.meta, base = `sat/${id}/`; let n = 0, cv = null;
+  // cloud cover for the sea-level clouds: the photo's darkest channel, blurred (as tools/sat.py made it)
+  const coverOf = (img) => {
+    const a = document.createElement('canvas'); a.width = 640; a.height = 512; const x = a.getContext('2d', { willReadFrequently: true });
+    x.drawImage(img, 0, 0, 640, 512); const d = x.getImageData(0, 0, 640, 512), p = d.data;
+    for (let i = 0; i < p.length; i += 4) p[i] = p[i + 1] = p[i + 2] = Math.min(p[i], p[i + 1], p[i + 2]);
+    x.putImageData(d, 0, 0); const b = document.createElement('canvas'); b.width = 640; b.height = 512;
+    const y = b.getContext('2d'); y.filter = 'blur(2.5px)'; y.drawImage(a, 0, 0); return new THREE.CanvasTexture(b);
+  };
+  const done = () => { if (++n === 2 && sat.id === id) {
+    cv = coverOf(w.image);
+    for (const tx of [w, c]) { tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 8; tx.wrapS = tx.wrapT = THREE.ClampToEdgeWrapping; tx.needsUpdate = true; }
+    cv.wrapS = cv.wrapT = THREE.ClampToEdgeWrapping; cv.minFilter = THREE.LinearFilter; cv.generateMipmaps = false; cv.needsUpdate = true;
+    for (const [k, tx] of [['uSatWide', w], ['uSatCore', c]]) { dive.u[k].value?.dispose?.(); dive.u[k].value = tx; }
+    su.uCov.value?.dispose?.(); su.uCov.value = cv;
+    const W = m.wide, C = m.core;
+    su.uSatW.value.set(W[0], W[1], W[2] - W[0], W[1] - W[3]); su.uSatC.value.set(C[0], C[1], C[2] - C[0], C[1] - C[3]); su.uSatEye.value.set(m.eye[0], m.eye[1]);
+    sat.ready = true; if (mode === 'intro') su.uUseSat.value = id === 'AL122005' ? 1 : 0; } };
+  const fail = () => { if (sat.id === id) sat.meta = null; };
+  const w = L.load(base + 'wide.jpg', done, undefined, fail), c = L.load(base + 'core.jpg', done, undefined, fail);
+}
 
 // ---- HUD ----
 const hud = $('hud'), help = $('help');
-help.innerHTML = '<b>W/S</b> or <b>↑/↓</b> throttle · <b>A/D</b> or <b>←/→</b> rudder · drag to look · gamepad supported<br><b>1</b> eyewall · <b>2</b> eye · <b>3</b> eye edge (drive into the wall) · <b>4</b> outer bands<br><b>H</b> readout · <b>N</b> map · <b>T</b> lightning · <b>L</b> lens droplets · <b>K</b> camera shake · <b>M</b> motion blur · <b>I</b> replay intro · <b>V</b> replay dive · <b>F</b> frame rate';
+help.innerHTML = '<b>W/S</b> or <b>↑/↓</b> throttle · <b>A/D</b> or <b>←/→</b> rudder · drag to look · gamepad supported<br><b>1</b> eyewall · <b>2</b> eye · <b>3</b> eye edge (drive into the wall) · <b>4</b> outer bands<br><b>[ ]</b> storm time slower / faster · <b>P</b> pause storm time · <b>G</b> keep pace with the storm · <b>B</b> back to the globe<br><b>H</b> readout · <b>N</b> map · <b>T</b> lightning · <b>L</b> lens droplets · <b>K</b> camera shake · <b>M</b> motion blur · <b>I</b> replay intro · <b>V</b> replay dive · <b>F</b> frame rate · <b>O</b> settings';
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], p2 = (v) => String(v).padStart(2, '0');
+const fmtT = (t) => { const d = new Date(t); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} UTC`; };
 const card = (d) => ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'][Math.round(d / 22.5) % 16];
 let hudT = 0, gustPeak = 0;
 // ---- storm map (north up): wind bands by Saffir-Simpson category, eye, max-wind ring, boat ----
@@ -126,6 +246,13 @@ function drawMap() {
   mc.globalAlpha = 1; mc.fillStyle = '#0b1c2a'; mc.beginPath(); mc.arc(c, c, st.eyeR * k, 0, 7); mc.fill();
   mc.strokeStyle = '#cfe9ff'; mc.lineWidth = 2; mc.setLineDash([6, 5]); mc.beginPath(); mc.arc(c, c, st.eyeR * k, 0, 7); mc.stroke();
   mc.setLineDash([]); mc.strokeStyle = 'rgba(255,255,255,.55)'; mc.lineWidth = 1.5; mc.beginPath(); mc.arc(c, c, st.rm * k, 0, 7); mc.stroke();
+  // the NOAA track through the centre: travelled part solid, the rest dashed, dots at fixes
+  { const mL = 111320 * Math.cos(st.lat * D2R), P = track.map((p) => [c + (p.lon - st.lon) * mL * k, c - (p.lat - st.lat) * 111320 * k, p.time]);
+    mc.lineWidth = 2; mc.strokeStyle = 'rgba(207,233,255,.75)';
+    for (const past of [true, false]) { mc.setLineDash(past ? [] : [5, 5]); mc.beginPath(); let started = false;
+      for (let i = 0; i < P.length; i++) { const [x, y, tt] = P[i], on = past ? tt <= clock.t : tt >= clock.t; if (!on) continue; if (!started) { mc.moveTo(x, y); started = true; } else mc.lineTo(x, y); }
+      if (past) mc.lineTo(c, c); mc.stroke(); if (!past) { mc.beginPath(); mc.moveTo(c, c); const nx = P.find((q) => q[2] >= clock.t); if (nx) mc.lineTo(nx[0], nx[1]); mc.stroke(); } }
+    mc.setLineDash([]); mc.fillStyle = '#cfe9ff'; for (const [x, y] of P) { mc.beginPath(); mc.arc(x, y, 3, 0, 7); mc.fill(); } }
   const bx = c + r.e * k, by = c - r.n * k;
   mc.strokeStyle = 'rgba(255,255,255,.7)'; mc.setLineDash([3, 6]); mc.beginPath(); mc.moveTo(bx, by); mc.lineTo(c, c); mc.stroke(); mc.setLineDash([]);
   mc.translate(bx, by); mc.rotate(boat.psi); mc.fillStyle = '#fff'; mc.strokeStyle = '#04121d'; mc.lineWidth = 2.5; mc.beginPath(); mc.moveTo(0, -15); mc.lineTo(9, 11); mc.lineTo(0, 6); mc.lineTo(-9, 11); mc.closePath(); mc.stroke(); mc.fill();
@@ -140,10 +267,13 @@ function drawHud(s, w, gust) {
   const r = rel(), dist = Math.hypot(r.e, r.n), brg = ((Math.atan2(-r.e, -r.n) * 180) / Math.PI + 360) % 360;
   const row = (k, v) => `<div class="row"><span class="k">${k}</span><b>${v}</b></div>`;
   const hdg = ((boat.psi * 180) / Math.PI % 360 + 360) % 360;
-  hud.innerHTML = `<div class="hd"><span>Katrina · 28 Aug 2005 18:00 UTC</span><span class="cat">Cat ${st.cat}</span></div>` +
+  const catTxt = /^\d$/.test(st.cat) ? `Cat ${st.cat}` : st.cat === 'TS' ? 'Trop. storm' : 'Trop. dep.';
+  const sn = sky$.sun, mn = sky$.moon, sEl = sn ? sn.el * R2D : 0, mEl = mn ? mn.el * R2D : -90;
+  const skyTxt = sEl > 0 ? `Day · sun ${sEl.toFixed(0)}° up` : sEl > -12 ? `Twilight · sun ${(-sEl).toFixed(0)}° down` : mEl > 0 ? `Night · moon ${(mn.lit * 100).toFixed(0)}% lit, ${mEl.toFixed(0)}° up` : `Night · moon down`;
+  hud.innerHTML = `<div class="hd"><span>${cur.name} · ${fmtT(clock.t)}</span><span class="cat">${catTxt}</span></div>` +
     row('Wind', `${(w.speed / KT).toFixed(0)} kt from ${card(w.from)} (${w.from.toFixed(0)}°)`) + row('Gusts', `${(gust / KT).toFixed(0)} kt`) +
     row('Waves', `${s.hs.toFixed(1)} m (${(s.hs * 3.281).toFixed(0)} ft) · ${s.tp.toFixed(0)} s`) + row('Crests apart', `${(1.56 * s.tp * s.tp).toFixed(0)} m · tallest ~${(s.hs * 1.9 * 3.281).toFixed(0)} ft`) + row('Pressure', `${(w.p / 100).toFixed(0)} mb`) +
-    row('Storm centre', `${(dist / NM).toFixed(1)} nm ${card(brg)}`) + row('Storm peak', `${st.vmaxKt.toFixed(0)} kt · ${(st.pc / 100).toFixed(0)} mb`) +
+    row('Storm centre', `${(dist / NM).toFixed(1)} nm ${card(brg)}`) + row('Storm max wind', `${st.vmaxKt.toFixed(0)} kt · ${(st.pc / 100).toFixed(0)} mb`) + row('Sky', skyTxt) +
     row('Boat', `${(boat.speed / KT).toFixed(1)} kt · hdg ${hdg.toFixed(0)}°`);
 }
 
@@ -162,9 +292,9 @@ function applyQuality() {
 }
 function govern(ms, dt) {
   GOV.ema += (Math.min(ms, 250) - GOV.ema) * 0.06; GOV.hold -= dt;
-  if (GOV.hold <= 0 && !LOW) {
+  if (GOV.hold <= 0 && (!LOW || PHONE) && GOV.fixed == null) {
     if (GOV.ema > 23 && GOV.level > 0) { GOV.level--; GOV.hold = 2.0; applyQuality(); }
-    else if (GOV.ema < 12 && GOV.level < LEVELS.length - 1) { GOV.level++; GOV.hold = 7; applyQuality(); }
+    else if (GOV.ema < 12 && GOV.level < (PHONE ? 1 : LEVELS.length - 1)) { GOV.level++; GOV.hold = 7; applyQuality(); }
   }
   fpsT -= dt; if (fpsT <= 0) { fpsT = 0.5; $('fps').textContent = GOV.show ? `${Math.round(1000 / GOV.ema)} fps · quality ${GOV.level + 1}/4 · ${mode}` : ''; }
 }
@@ -177,43 +307,61 @@ const v3 = new THREE.Vector3(), tmp = [0, 0, 0];
 let t = 0, last = performance.now(), frameN = 0, gphase = Math.random() * 100;
 function frame(now) {
   requestAnimationFrame(frame);
-  const rawMs = now - last; let dt = Math.min(0.05, rawMs / 1000) || 0.016; last = now; govern(rawMs || 16, dt); if (dbg.fixedDt) dt = dbg.fixedDt; t += dt; frameN++;
+  const rawMs = now - last; let dt = Math.min(0.05, rawMs / 1000) || 0.016; last = now; if (mode === 'globe') { globeFrame(dbg.fixedDt || dt); return; } govern(rawMs || 16, dt); if (dbg.fixedDt) dt = dbg.fixedDt; t += dt; frameN++;
   const keys = input.update(dt);
-  if (mode !== 'storm' && keys.some((c) => c === 'Space' || c === 'Enter' || c === 'Escape')) startStorm();
+  if (mode !== 'storm' && keys.some((c) => c === 'Space' || c === 'Enter' || c === 'Escape')) { if (inIntro()) { startGlobe(); return; } startStorm(); }
   if (mode === 'intro') { introFrame(dt); return; }
   const diving = mode === 'dive'; if (diving) { input.throttle = 0.35; input.rudder = 0; keys.length = 0; }
   post.fade = Math.min(1, post.fade + dt * 1.3);
   for (const code of keys) {
+    if (code === 'BracketRight') setSpeed(Math.min(SPEEDS.length - 1, clock.si + 1));
+    if (code === 'BracketLeft') setSpeed(Math.max(0, clock.si - 1));
+    if (code === 'KeyP') setPaused(!clock.paused);
+    if (code === 'KeyG') { clock.follow = !clock.follow; drawTimeBar(); }
     if (code === 'KeyI') { startIntro(); return; }
+    if (code === 'KeyB' && !diving) { startGlobe(); return; }
     if (code === 'KeyV') { startDive(); return; }
     if (SPOTS[code]) SPOTS[code]();
-    if (code === 'KeyH') hud.classList.toggle('hide');
-    if (code === 'KeyL') post.opts.lens = !post.opts.lens;
-    if (code === 'KeyK') chase.shakeOn = !chase.shakeOn;
-    if (code === 'KeyM') post.opts.motionBlur = !post.opts.motionBlur;
-    if (code === 'KeyN') map.classList.toggle('hide');
-    if (code === 'KeyF') GOV.show = !GOV.show;
-    if (code === 'KeyT') LT.on = !LT.on;
+    const tg = { KeyH: 'hud', KeyL: 'lens', KeyK: 'shake', KeyM: 'blur', KeyN: 'map', KeyF: 'fps', KeyT: 'lightning' }[code];
+    if (tg) { SET[tg] = !SET[tg]; applySet(); }
+    if (code === 'KeyO') toggleSettings();
   }
+  // storm time
+  if (mode === 'storm' && !clock.paused) { clock.t = Math.min(T_END, clock.t + dt * 1000 * SPEEDS[clock.si]); if (clock.t >= T_END) setPaused(true); }
+  { const lat = st.lat, lon = st.lon; st = stormNow(clock.t);
+    if (clock.follow) { geo.lat0 += st.lat - lat; geo.lon0 += st.lon - lon; } }  // boat keeps its place relative to the storm
+  placeStorm();
   // local conditions from the reconstruction
   const r = rel(), s = seaAt(st, r.e, r.n), w = s.wind, rainHere = precipAt({ ...st, }, r.e, r.n);
   const k = 1 - Math.exp(-dt * 0.5), tgt = { hs: s.hs, tp: s.tp, dx: s.de, dz: -s.dn, wx: s.we, wz: -s.wn, iso: s.iso };
   for (const key in tgt) seaS[key] += (tgt[key] - seaS[key]) * k;
   { const m = Math.hypot(seaS.dx, seaS.dz) || 1; seaS.dx /= m; seaS.dz /= m; const m2 = Math.hypot(seaS.wx, seaS.wz) || 1; seaS.wx /= m2; seaS.wz /= m2; }
   sim.setSea(seaS);
+  // keep the dominant waves well resolved as the sea changes: re-size the wave tiles when they are off by
+  // more than 45%, under a short dissolve (the wave pattern itself changes at that moment)
+  if (!diving) { const ideal = sim.scaleFor(seaS.tp)[0], cur = sim.L[0]; if (ideal / cur > 1.45 || cur / ideal > 1.45) { post.holdFrame(); sim.setScale(sim.scaleFor(seaS.tp)); ocean.syncScale(); } }
   const gn = 0.5 * Math.sin(t * 0.31 + gphase) + 0.3 * Math.sin(t * 0.83 + 1.7 * gphase) + 0.2 * Math.sin(t * 2.1 + gphase * 0.3);
   const gf = 1 + 0.16 * gn, wsp = Math.max(w.speed, 0.5), wx = (w.e / wsp), wz = (-w.n / wsp), gust = w.speed * 1.2;
   ocean.setWind(wx, wz, w.speed * gf);
   const distC = Math.hypot(r.e, r.n);
   const rain = Math.min(1, sm(st.eyeR * 0.9, st.eyeR * 1.2, distC) * (1 - 0.7 * sm(st.rm * 1.6, st.rm * 4.5, distC)) + 0.6 * rainHere) * (0.8 + 0.25 * gn);
+  const outerR = st.outerR, cdoR = st.cdoR;
   const sunVis = 1 - sm(st.eyeR * 0.6, st.eyeR * 0.95, distC) + sm(outerR * 0.95, outerR * 1.3, distC);
   // sun + sky
-  const sp = sunPosition(T0, st.lat, st.lon); sky.setSun(sp.el, sp.az);
-  const su = sky.u; su.uEyeR.value = st.eyeR / 1e3; su.uRm.value = st.rm / 1e3; su.uCdoR.value = cdoR / 1e3; su.uOuterR.value = outerR / 1e3; su.uSpin.value = st.vmax / 1e3; su.uRain.value = 1;
+  const pre = lighting(clock.t);
+  shieldLowSun();
+  const su = sky.u; su.uUseSat.value = satOK() ? 1 : 0;
+  dive.u.uKeyUp.value = sm(-0.1, 0.05, LV.el);
+  dive.u.uPhoto.value += ((satOK() && sky$.sunStorm > 3 * D2R ? 1 : 0) - dive.u.uPhoto.value) * Math.min(1, dt * 2); su.uEyeR.value = st.eyeR / 1e3; su.uRm.value = st.rm / 1e3; su.uCdoR.value = cdoR / 1e3; su.uOuterR.value = outerR / 1e3; su.uSpin.value = st.vmax / 1e3; su.uRain.value = 1;
   sun.color.setRGB(sky.sunGround.x, sky.sunGround.y, sky.sunGround.z); sun.intensity = sunVis;
   sun.position.set(boat.x, 0, boat.z).addScaledVector(sky.sunDir, 500); sun.target.position.set(boat.x, 0, boat.z);
   ocean.u.uSunE.value.copy(sky.sunGround).multiplyScalar(sunVis);
-  yacht.userData.wall.emissiveIntensity = 0.55 * (1 - sunVis);
+  // lit windows and navigation lights: brighter against the dark at night (perceptual compromise, not
+  // physical: a real lamp against moonlight would be thousands of times brighter)
+  const dayK = Math.min(1, sky$.lux / L0);
+  yacht.userData.wall.emissiveIntensity = 0.55 * (1 - sunVis * dayK) * Math.pow(pre, 0.2);
+  const navK = 2.2 * Math.pow(pre, 0.3); yacht.userData.nav.forEach((m) => m.material.color.copy(m.userData.base).multiplyScalar(navK));
+  LT.gain = Math.pow(pre, 0.18);  // flashes read brighter against the dark, without whiting out the frame
   yacht.userData.radar.rotation.y = t * 2.5;
   // simulate
   sim.update(t, dt);
@@ -240,7 +388,7 @@ function frame(now) {
   }
   spray.update(dt, vx * 0.75, vz * 0.75);
   spray.mat.uniforms.uScale.value = post.h / (2 * Math.tan((camera.fov * Math.PI) / 360));
-  spray.mat.uniforms.uPano.value = sky.pano.texture; spray.mat.uniforms.uCol.value.set(0.65, 0.78, 1).multiplyScalar(LT.I * 0.18);
+  spray.mat.uniforms.uPano.value = sky.pano.texture; spray.mat.uniforms.uCol.value.set(0.65, 0.78, 1).multiplyScalar(LT.I * 0.18 * LT.gain);
   // render inputs
   su.uCamRel.value.set((camera.position.x - center.x) / 1e3, Math.max(camera.position.y, 2) / 1e3, (camera.position.z - center.z) / 1e3);
   if (!diving || dv.alt < 2500) sky.update(t, diving && dv.alt < DIVE_SWITCH + 60 && !dv.synced); sky.syncCamera(camera); if (diving) dv.synced = dv.alt < DIVE_SWITCH + 60; else dv.synced = false;
@@ -252,14 +400,16 @@ function frame(now) {
   env.key = 0.15 + 0.03 * sunVis; env.adapt = LT.I > 0.02 ? 0.15 : 1.2;
   v3.set(vx - chase.vel.x, -9, vz - chase.vel.z).transformDirection(camera.matrixWorldInverse); env.rainDir.set(v3.x, v3.y).normalize();
   post.wet += ((rain * 0.75 + sprayAmt * 0.25) * dbg.rain - post.wet) * (1 - Math.exp(-dt * 1.4));
-  if (high) { env.fogExt = 0; env.spray = 0; env.rain = 0; env.key = 0.17 + 0.25 * sm(20e3, 300e3, dv.alt); env.adapt = 2.2; post.wet += (dv.inCloud * 0.85 - post.wet) * (1 - Math.exp(-dt * 3)); }
+  if (high) { env.fogExt = 0; env.spray = 0; env.rain = 0; env.key = 0.17 + 0.25 * sm(20e3, 300e3, dv.alt) + (dv.rise ? 0.08 * sm(8e3, 40e3, dv.alt) : 0); env.adapt = 2.2; post.wet += (dv.inCloud * 0.85 - post.wet) * (1 - Math.exp(-dt * 3)); }
   else if (diving) env.adapt = 2.5;
   if (diving) { dive.u.uCamKm.value.copy(su.uCamRel.value); dive.u.uCamKm.value.y = camera.position.y / 1e3; }
-  post.render(scene, camera, t, dt, env, high ? (target) => dive.draw(target, camera, post.w, post.h, sky.u.uUseSat.value > 0.5 && dv.alt > 112e3) : null);
+  post.render(scene, camera, t, dt, env, high ? (target) => dive.draw(target, camera, post.w, post.h, dive.u.uPhoto.value > 0.5 && dv.alt > 112e3) : null);
   hudT -= dt; if (hudT <= 0) { hudT = 0.2; drawHud(s, w, gust); drawMap(); }
 }
 function resize() {
-  W = innerWidth; H = innerHeight; const w = Math.round(W * Q.scale), h = Math.round(H * Q.scale);
+  W = innerWidth; H = innerHeight;
+  if (mode === 'globe') { const gd = Math.min(window.devicePixelRatio || 1, 2); renderer.setSize(Math.round(W * gd), Math.round(H * gd), false); globe.resize(W, H, gd); return; }
+  const w = Math.round(W * Q.scale), h = Math.round(H * Q.scale);
   renderer.setSize(w, h, false); camera.aspect = W / H; camera.updateProjectionMatrix(); post.resize(w, h);
 }
 addEventListener('resize', resize);
@@ -269,18 +419,19 @@ const shore = new Shore(sky, noise, ocean); scene.add(shore.group);
 let mode = 'storm', it = 0, flashes = 0;
 const lerp = (a, b, k) => a + (b - a) * k;
 function startIntro() {
-  mode = 'intro'; it = 0; flashes = 0; title.classList.remove('on'); $('skip').textContent = 'Skip intro'; shore.group.visible = true; yacht.visible = spray.mesh.visible = false; if (LT.bolt) LT.bolt.visible = false;
-  for (const id of ['hud', 'help', 'note', 'map']) $(id).classList.add('hide'); $('skip').style.display = 'block';
+  mode = 'intro'; it = 0; flashes = 0; title.classList.remove('on', 'eye'); dv.rise = false; reveal = null; $('skip').textContent = 'Skip intro'; shore.group.visible = true; yacht.visible = spray.mesh.visible = false; if (LT.bolt) LT.bolt.visible = false;
+  for (const id of ['hud', 'help', 'note', 'map', 'time', 'settings', 'stick']) $(id).classList.add('hide'); $('skip').style.display = 'block';
+  sky.resetLight(); post.pre = 1; LT.gain = 1; loadSat('AL122005'); sky.u.uUseSat.value = sat.ready && sat.id === 'AL122005' ? 1 : 0; // the intro is Katrina's
   ocean.u.uShore.value = 1; ocean.u.uBoatOn.value = 0; sky.u.uMode.value = 1; sky.first = true; applyQuality(); post.fade = 0; post.wet = 0; LT.next = 1e9; LT.t0 = -1;
   shore.u.uWindDir.value.set(0.8, 0, 0.6).normalize(); seaS = { hs: 0.35, tp: 7, dx: 0.15, dz: 0.99, wx: 0.8, wz: 0.6, iso: 0.25 }; sim.setSea(seaS); sim.setScale(sim.scaleFor(8.5)); ocean.syncScale();
 }
 function startStorm() {
   mode = 'storm'; title.classList.remove('on'); shore.group.visible = false; yacht.visible = spray.mesh.visible = true;
-  for (const id of ['hud', 'help', 'note', 'map']) $(id).classList.remove('hide'); $('skip').style.display = 'none';
+  showStormUI(); $('skip').style.display = 'none';
   ocean.u.uShore.value = 0; ocean.u.uSurf.value = 0; ocean.u.uBoatOn.value = 1; const su = sky.u; su.uMode.value = 0; applyQuality(); su.uSkyCut.value = 1; sky.bgMat.uniforms.uLod.value = 0; env.rainGain = 0.3; su.uDark.value = 1; su.uRain.value = 1;
   LT.forceAz = undefined; LT.next = 5 + Math.random() * 5; post.fade = 0; SPOTS.Digit1();
 }
-const INTRO_T = 16.5, title = $('title');
+const INTRO_T = 10.6, title = $('title'); // shore phase; then the rise to space (RISE_T) and the globe reveal
 function introFrame(dt) {
   if (!dbg.introFreeze) it += dt;
   const su = sky.u, W = shore.u.uWindDir.value;
@@ -314,7 +465,7 @@ function introFrame(dt) {
   camera.rotation.x += sh * Math.sin(t * 13.1); camera.rotation.y += sh * Math.sin(t * 11.3 + 2); camera.rotation.z += sh * 0.6 * Math.sin(t * 7.9);
   camera.fov = lerp(21, 50, c); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
   // the storm hits: first lightning strike, and the title lands with it
-  if ((flashes === 0 && front > -1) || (flashes === 1 && it > 13.4)) { flashes++; LT.forceAz = (Math.random() - 0.5) * 1.0; LT.next = 0; if (flashes === 1) title.classList.add('on'); }
+  if ((flashes === 0 && front > -1) || (flashes === 1 && it > INTRO_T - 0.7)) { flashes++; LT.forceAz = (Math.random() - 0.5) * 1.0; LT.next = 0; }
   const on = LT.on; LT.on = true; updateLightning(dt, t, 1, 0); LT.on = on; LT.next = Math.max(LT.next, 1e8); shore.u.uFlash.value = LT.I;
   su.uCamRel.value.set(camera.position.x / 1e3, Math.max(camera.position.y, 2) / 1e3, camera.position.z / 1e3);
   sky.update(t, false); sky.syncCamera(camera); ocean.update(camera, t);
@@ -322,10 +473,9 @@ function introFrame(dt) {
   env.rainGain = 0.16; env.key = 0.19 - 0.02 * over; env.adapt = LT.I > 0.02 ? 0.15 : 2.0; env.flash = LT.dir; env.seaY = 0;
   v3.set(W.x * wind, -9, W.z * wind).transformDirection(camera.matrixWorldInverse); env.rainDir.set(v3.x, v3.y).normalize();
   post.wet += (rain * 0.7 - post.wet) * (1 - Math.exp(-dt * 1.2));
-  post.fade = sm(0, 1.0, it) * (1 - sm(INTRO_T - 0.9, INTRO_T - 0.1, it));
-  if (it > INTRO_T - 1.0) title.classList.remove('on');
+  post.fade = sm(0, 1.0, it) * (1 - sm(INTRO_T - 0.45, INTRO_T, it));
   post.render(scene, camera, t, dt, env);
-  if (it > INTRO_T) startDive();
+  if (it > INTRO_T) startRise();
 }
 
 // ---- dive from space into the storm ----
@@ -333,14 +483,53 @@ const dive = new Dive(renderer, sky), DIVE_T = 11, dv = { t: 0, alt: 0, start: n
 const KN = [[0, Math.log(1700)], [0.6, Math.log(17)], [0.76, Math.log(0.5)], [1, Math.log(0.02)]];
 const lnAlt = (p) => { for (let i = 1; i < KN.length; i++) if (p <= KN[i][0]) { const f = (p - KN[i - 1][0]) / (KN[i][0] - KN[i - 1][0]); return lerp(KN[i - 1][1], KN[i][1], f); } return KN[KN.length - 1][1]; };
 function startDive() {
-  startStorm(); mode = 'dive'; dv.t = 0; title.classList.remove('on');
-  for (const id of ['hud', 'help', 'note', 'map']) $(id).classList.add('hide'); $('skip').style.display = 'block'; $('skip').textContent = 'Skip';
+  startStorm(); mode = 'dive'; dv.t = 0; dv.rise = false; title.classList.remove('on', 'eye');
+  for (const id of ['hud', 'help', 'note', 'map', 'time', 'settings', 'stick']) $(id).classList.add('hide'); $('skip').style.display = 'block'; $('skip').textContent = 'Skip';
   // begin high over the outer rain bands, outward from where the yacht is
   const out = v3.set(boat.x - center.x, 0, boat.z - center.z).normalize();
   dv.start.set(boat.x + out.x * 110e3 - out.z * 40e3, 0, boat.z + out.z * 110e3 + out.x * 40e3);
   post.fade = 0; post.wet = 0;
 }
+// intro, part two: straight up from Katrina's eyewall through the cloud deck, the title settling into the
+// eye, then out to orbit, where the globe takes over (startReveal) and draws every track in date order
+const RISE_T = 6.2, RISE_K = [[0, Math.log(1.2e3)], [3.2, Math.log(62e3)], [4.4, Math.log(90e3)], [RISE_T, Math.log(1500e3)]];
+let reveal = null;
+function startRise() {
+  const K = ARCHIVE.find((s) => s.id === 'AL122005'); setStorm(K); loadSat(K.id);
+  clock.t = SATIDX.AL122005?.t || Date.UTC(2005, 7, 28, 16, 25); clock.si = 0; st = stormNow(clock.t); // the photo's own time, so its eye sits on the track
+  startStorm(); setPaused(true); mode = 'dive'; dv.rise = true; dv.t = 0;
+  for (const id of ['hud', 'help', 'note', 'map', 'time', 'settings', 'stick']) $(id).classList.add('hide'); $('skip').style.display = 'block'; $('skip').textContent = 'Skip intro';
+  post.fade = 0; post.wet = 0.9; title.classList.add('eye'); post.opts.motionBlur = false; // fast climb: blur would smear the reveal
+}
+function riseCamera(dt) {
+  if (!dbg.diveFreeze) dv.t += dt; const q = dv.t;
+  let la = RISE_K[RISE_K.length - 1][1]; for (let i = 1; i < RISE_K.length; i++) if (q <= RISE_K[i][0]) { const f = sm(RISE_K[i - 1][0], RISE_K[i][0], q); la = lerp(RISE_K[i - 1][1], RISE_K[i][1], f); break; }
+  const ax = center.x, az = center.z; // straight up over the storm centre (the photo is registered to it)
+  const alt = Math.exp(la), off = 45e3 * (1 - sm(0.2, 3.0, q));
+  camera.position.set(ax + off * 0.6, alt, az + off * 0.8);
+  camera.up.set(0, 0, -1); camera.lookAt(ax, 0, az); camera.up.set(0, 1, 0);
+  camera.fov = 40; camera.updateProjectionMatrix(); camera.updateMatrixWorld();
+  dv.alt = alt; dv.inCloud = sm(17e3, 13e3, alt);
+  if (q > 2.7 && !title.classList.contains('on')) title.classList.add('on');
+  if (q >= RISE_T) startReveal();
+}
+function startReveal() {
+  dv.rise = false; mode = 'globe'; $('skip').style.display = 'block'; $('fps').textContent = ''; post.opts.motionBlur = SET.blur;
+  for (const id of ['hud', 'help', 'note', 'map', 'time', 'settings', 'stick']) $(id).classList.add('hide');
+  const K = ARCHIVE.find((s) => s.id === 'AL122005'), p = pointAtTime(K, clock.t);
+  Object.assign(globe.view, { lat: p.lat, lon: p.lon, dist: 1 + 1500 / 6371, vLat: 0, vLon: 0 }); globe.select(null);
+  globe.flyTo(24, -68, 3.4, 4.6); globe.startReveal(); reveal = { t: 0 };
+  canvas.style.cursor = 'default'; resize();
+}
+addEventListener('keydown', (e) => { if (reveal && ['Space', 'Enter', 'Escape'].includes(e.code)) startGlobe(); });
+function revealFrame(dt) {
+  reveal.t += dt; const tc = globe.setReveal(Math.min(1, sm(0.2, 4.0, reveal.t)));
+  const y = $('year'); y.classList.toggle('on', reveal.t < 4.4); if (tc) y.textContent = new Date(tc).getUTCFullYear();
+  if (reveal.t > 1.3) title.classList.remove('on');
+  if (reveal.t > 4.7) { reveal = null; globe.endReveal(); startGlobe(); }
+}
 function diveCamera(dt) {
+  if (dv.rise) return riseCamera(dt);
   if (!dbg.diveFreeze) dv.t += dt; const p0 = Math.min(1, dv.t / DIVE_T), p = p0 * p0 * (3 - 2 * p0);
   dv.endP.copy(camera.position); dv.endQ.copy(camera.quaternion);
   const alt = Math.exp(lnAlt(p)) * 1000, hk = 1 - Math.pow(1 - Math.min(1, p / 0.68), 2.4);
@@ -353,19 +542,101 @@ function diveCamera(dt) {
   camera.rotation.x += 0.006 * inCloud * Math.sin(t * 17.3); camera.rotation.y += 0.006 * inCloud * Math.sin(t * 13.9 + 1); camera.rotation.z += 0.01 * inCloud * Math.sin(t * 9.1);
   camera.fov = lerp(lerp(30, 40, sm(0.05, 0.5, p)), 48 + 9 * sm(3, 15, boat.speed), sm(0.8, 1, p)); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
   dv.alt = camera.position.y; dv.inCloud = inCloud;
-  if (p0 >= 1) { mode = 'storm'; for (const id of ['hud', 'help', 'note', 'map']) $(id).classList.remove('hide'); $('skip').style.display = 'none'; }
+  if (p0 >= 1) { mode = 'storm'; showStormUI(); $('skip').style.display = 'none'; }
 }
-// NASA MODIS (Terra) true-colour image of Katrina, 28 Aug 2005, via NASA Worldview Snapshots / GIBS
-{ const L = new THREE.TextureLoader(), su = sky.u; let n = 0;
-  const done = () => { if (++n === 3) su.uUseSat.value = 1; };
-  const w = L.load(satWide, done), c = L.load(satCore, done), cv = L.load(satCov, done);
-  for (const tx of [w, c]) { tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 8; tx.wrapS = tx.wrapT = THREE.ClampToEdgeWrapping; }
-  cv.wrapS = cv.wrapT = THREE.ClampToEdgeWrapping; cv.minFilter = THREE.LinearFilter; cv.generateMipmaps = false;
-  dive.u.uSatWide.value = w; dive.u.uSatCore.value = c; su.uCov.value = cv;
-  const W = satMeta.wide, C = satMeta.core;
-  su.uSatW.value.set(W[0], W[1], W[2] - W[0], W[1] - W[3]); su.uSatC.value.set(C[0], C[1], C[2] - C[0], C[1] - C[3]); su.uSatEye.value.set(satMeta.eye[0], satMeta.eye[1]); }
+loadSat(cur.id);
 const DIVE_SWITCH = 430; // metres: below the cloud base the normal sea-level renderer takes over
-$('skip').addEventListener('click', startStorm);
-if (matchMedia('(prefers-reduced-motion: reduce)').matches || location.hash === '#storm') startStorm(); else startIntro();
-window.__ew = { dv, startDive, setDive: (v) => { dv.t = v; }, shore, setIntro: (v) => { it = v; }, startIntro, startStorm, LT, THREE, dbg, env, st, sim, sky, ocean, post, camera, boat, chase, teleport, SPOTS, input };
+const inIntro = () => mode === 'intro' || dv.rise || reveal;
+$('skip').addEventListener('click', () => (inIntro() ? startGlobe() : startStorm()));
+// ---- settings (O, or the Settings button): kept in this browser's storage when it is available ----
+const SET_KEYS = [['hud', 'Readout', 'H'], ['map', 'Storm map', 'N'], ['help', 'Key help', ''], ['lens', 'Rain and spray on the lens', 'L'], ['shake', 'Camera shake', 'K'], ['blur', 'Motion blur', 'M'], ['lightning', 'Lightning', 'T'], ['fps', 'Frame rate', 'F']];
+const SET = { hud: true, map: true, help: !PHONE, lens: true, shake: true, blur: true, lightning: true, fps: true, quality: 'auto' };
+try { Object.assign(SET, JSON.parse(localStorage.getItem('eyewall.settings') || '{}')); } catch (e) { /* storage unavailable: defaults */ }
+function showStormUI() { for (const id of ['note', 'time'].concat(PHONE ? ['stick'] : [])) $(id).classList.remove('hide'); for (const id of ['hud', 'map', 'help']) $(id).classList.toggle('hide', !SET[id]); }
+function applySet() {
+  post.opts.lens = SET.lens; chase.shakeOn = SET.shake; post.opts.motionBlur = SET.blur; LT.on = SET.lightning; GOV.show = SET.fps; if (!SET.fps) $('fps').textContent = '';
+  GOV.fixed = SET.quality === 'auto' ? null : +SET.quality; if (GOV.fixed != null && GOV.level !== GOV.fixed) { GOV.level = GOV.fixed; applyQuality(); }
+  if (mode === 'storm' || mode === 'dive') for (const id of ['hud', 'map', 'help']) $(id).classList.toggle('hide', !SET[id]);
+  try { localStorage.setItem('eyewall.settings', JSON.stringify(SET)); } catch (e) { /* not kept */ }
+  drawSettings();
+}
+function drawSettings() {
+  const el = $('settings'); if (!el) return;
+  el.innerHTML = '<div class="sh"><b>Settings</b><button data-x>×</button></div>' + SET_KEYS.map(([k, n, key]) => `<label><input type="checkbox" data-k="${k}"${SET[k] ? ' checked' : ''}><span>${n}</span>${key ? `<em>${key}</em>` : ''}</label>`).join('') +
+    `<div class="sq"><span>Quality</span>${[['auto', 'Auto'], ['0', 'Low'], ['1', 'Medium'], ['2', 'High'], ['3', 'Max']].map(([v, n]) => `<button data-q="${v}" class="${String(SET.quality) === v ? 'on' : ''}">${n}</button>`).join('')}</div>` +
+    `<p>Auto lowers detail to hold the frame rate. <a href="methodology.html" target="_blank" rel="noopener">Methodology and sources</a></p>`;
+}
+function toggleSettings() { $('settings').classList.toggle('hide'); drawSettings(); }
+$('settings').addEventListener('click', (e) => { if (e.target.dataset.x != null) { $('settings').classList.add('hide'); return; } const q = e.target.dataset.q; if (q != null) { SET.quality = q; applySet(); } });
+$('settings').addEventListener('change', (e) => { const k = e.target.dataset.k; if (k) { SET[k] = e.target.checked; applySet(); } });
+
+// ---- touch stick (phones): drag from its centre; up = ahead, sideways = rudder ----
+{
+  const el = $('stick'), knob = el.querySelector('i'); let id = null, c = null;
+  const set = (e) => { const R = el.offsetWidth / 2, dx = e.clientX - c[0], dy = e.clientY - c[1], m = Math.min(1, Math.hypot(dx, dy) / R) / (Math.hypot(dx, dy) / R || 1);
+    input.stick = { x: (dx / R) * m, y: (dy / R) * m }; knob.style.transform = `translate(${dx * m}px, ${dy * m}px)`; };
+  el.addEventListener('pointerdown', (e) => { id = e.pointerId; const r = el.getBoundingClientRect(); c = [r.left + r.width / 2, r.top + r.height / 2]; el.setPointerCapture(id); set(e); e.preventDefault(); });
+  el.addEventListener('pointermove', (e) => { if (e.pointerId === id) set(e); });
+  const end = (e) => { if (e.pointerId !== id) return; id = null; input.stick = { x: 0, y: input.stick?.y ?? 0 }; knob.style.transform = `translate(0px, ${(input.stick.y * el.offsetWidth) / 2}px)`; };
+  el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+  // the throttle holds where you leave it (like a lever); the rudder springs back to centre
+}
+
+// ---- storm-time controls ----
+const timeBar = $('time');
+function setSpeed(i) { clock.si = i; if (clock.t >= T_END) clock.t = T_END; setPaused(false); }
+function setPaused(p) { clock.paused = p && true; drawTimeBar(); }
+function drawTimeBar() {
+  const end = clock.t >= T_END;
+  timeBar.innerHTML = `<span class="clk">${end ? (cur.live ? 'Latest NHC fix' : 'End of NOAA track') : clock.paused ? 'Storm time paused' : 'Storm time'}</span>` +
+    `<button data-k="p" class="${clock.paused ? 'on' : ''}" title="P">❚❚</button>` + SPEEDS.map((v, i) => `<button data-k="${i}" class="${!clock.paused && clock.si === i ? 'on' : ''}">${v}×</button>`).join('') +
+    `<button data-k="g" class="${clock.follow ? 'on' : ''}" title="G: carry the boat along with the storm">Keep pace</button>` + `<button data-k="b" title="B">Globe</button>` + `<button data-k="s" title="O">Settings</button>`;
+}
+timeBar.addEventListener('click', (e) => { const k = e.target.dataset?.k; if (k === 's') toggleSettings(); else if (k === 'b') startGlobe(); else if (k === 'p') setPaused(!clock.paused); else if (k === 'g') { clock.follow = !clock.follow; drawTimeBar(); } else if (k != null) setSpeed(+k); });
+drawTimeBar(); applySet();
+
+// ---- the globe: archive, path selector, launch ----
+const globe = new Globe(renderer, ARCHIVE);
+const launchMsg = (s, p) => {
+  const q = stormAt(trackOf(s), p.t); q.motion = Math.atan2(q.u, q.v) * R2D;
+  const sp = seaSpot(q), over = globe.isWater(p.lat, p.lon) === false;
+  if (!sp) return { ok: false, msg: 'Over land, with no open water near the centre. Pick a point at sea.' };
+  if (sp.k > 1) return { ok: true, msg: `${over ? 'Centre over land' : 'Land near the eyewall'}: the yacht starts ${Math.round((sp.r / NM) / 5) * 5} nm out, on open water.` };
+  if (over) return { ok: true, msg: 'Centre over land. The yacht starts in the eyewall winds, on open water nearby.' };
+  return { ok: true, msg: 'Open water. The yacht starts in the strongest winds, right of the storm’s motion.' };
+};
+let launching = null;
+const gui = new GlobeUI(globe, ARCHIVE, canvas, {
+  check: launchMsg,
+  photo: (s) => { const m = SATIDX[s.id]; return m ? `NASA ${m.src.replace(' (hand-registered)', '')} photo from ${fmtT(m.t)} (pass time estimated). Shown from space and used for the cloud layout within 12 hours of it.` : 'No NASA photo bundled for this storm yet; clouds come from the storm model.'; },
+  launch: (s, p) => { if (launching) return; launching = { s, p, t: 0 }; globe.flyTo(p.lat, p.lon, 1.32, 1.5); $('fade').classList.add('on'); },
+});
+// live storms: live.json sits next to index.html and is replaced by the scheduled refresh; #livedemo loads
+// a labelled replay of one archived advisory instead, so the feature can be seen when nothing is active
+const LIVE_DEMO = location.hash === '#livedemo';
+fetch(`${LIVE_DEMO ? 'live_demo.json' : 'live.json'}?t=${Date.now()}`, { cache: 'no-store' })
+  .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+  .then((doc) => { globe.setLive(doc.storms || []); gui.setLive(doc); if (mode === 'globe' && gui.live.length && !gui.touched) gui.select(gui.live[0], null, true); })
+  .catch((e) => { console.warn('live data', e); gui.setLive({ error: String(e) }); });
+function globeFrame(dt) {
+  if (reveal) revealFrame(dt);
+  globe.frame(dt, gui.dragging);
+  if (launching && (launching.t += dt) > 1.6) {
+    const { s, p } = launching; launching = null;
+    setStorm(s); loadSat(s.id); clock.t = p.t; clock.si = 0; clock.paused = false; st = stormNow(clock.t);
+    gui.show(false); mode = 'storm'; resize(); startDive(); drawTimeBar();
+    setTimeout(() => $('fade').classList.remove('on'), 50);
+  }
+}
+function startGlobe() {
+  if (reveal) { reveal = null; globe.endReveal(); } if (dv.rise) post.opts.motionBlur = SET.blur; dv.rise = false; $('fps').textContent = ''; shore.group.visible = false; $('year').classList.remove('on');
+  mode = 'globe'; title.classList.remove('on', 'eye'); $('skip').style.display = 'none';
+  for (const id of ['hud', 'help', 'note', 'map', 'time', 'settings', 'stick']) $(id).classList.add('hide');
+  canvas.style.cursor = 'grab'; resize(); gui.show(true);
+  if (gui.live.length && !gui.touched && !cur.live) gui.select(gui.live[0], null, true);
+  else gui.select(cur, pointAtTime(cur, clock.t));
+}
+
+if (location.hash === '#storm') startStorm(); else if (location.hash === '#globe' || LIVE_DEMO || matchMedia('(prefers-reduced-motion: reduce)').matches) startGlobe(); else startIntro();
+window.__ew = { get mode() { return mode; }, get frameN() { return frameN; }, SATIDX, dive, globe, gui, startGlobe, setStorm, ARCHIVE, get cur() { return cur; }, dv, startDive, setDive: (v) => { dv.t = v; }, shore, setIntro: (v) => { it = v; }, startIntro, startStorm, LT, THREE, dbg, env, get st() { return st; }, clock, setSpeed, setPaused, sky$, LV, geo, center, sim, sky, ocean, post, camera, boat, chase, teleport, SPOTS, input };
 requestAnimationFrame(frame);

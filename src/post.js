@@ -59,34 +59,44 @@ void main(){
 }`;
 
 const EXP_FS = `
-varying vec2 vUv; uniform sampler2D uHdr, uPrev; uniform float uRate, uKey, uLod;
+varying vec2 vUv; uniform sampler2D uHdr, uPrev; uniform float uRate, uKey, uLod, uPre, uLref;
 void main(){
   vec3 s = vec3(0.);
   s += textureLod(uHdr, vec2(0.5, 0.45), uLod).rgb*2.; s += textureLod(uHdr, vec2(0.3, 0.4), uLod).rgb; s += textureLod(uHdr, vec2(0.7, 0.4), uLod).rgb;
   s += textureLod(uHdr, vec2(0.5, 0.7), uLod).rgb; s += textureLod(uHdr, vec2(0.5, 0.2), uLod).rgb;
-  float lum = max(dot(s/6., vec3(0.2126, 0.7152, 0.0722)), 1e-4);
-  float target = clamp(uKey/lum, 0.01, 400.);
-  float prev = texture(uPrev, vec2(0.5)).r;
-  float e = prev <= 0. ? target : exp(mix(log(prev), log(target), uRate));
-  gl_FragColor = vec4(e, e, e, 1.);
+  float lum = max(dot(s/6., vec3(0.2126, 0.7152, 0.0722)), 1e-6);
+  // Night response. The scene is pre-exposed by uPre, so lum/uPre is the true adaptation level. Below
+  // uLref the eye cannot fully compensate: the picture gets darker (about 0.2 power of the light level,
+  // floored so the boat stays findable) and loses colour (rods take over, Purkinje blue shift).
+  float La = lum/uPre, rel = La/uLref;
+  float dim = clamp(pow(min(rel, 1.), 0.2), 0.045, 1.);
+  float scot = 1. - smoothstep(-3.6, -0.6, log(max(rel, 1e-12))/2.302585);
+  float target = clamp(uKey/lum, 0.01, 400.)*dim;
+  vec2 prev = texture(uPrev, vec2(0.5)).rg;
+  float e = prev.r <= 0. ? target : exp(mix(log(prev.r), log(target), uRate));
+  float sc = prev.r <= 0. ? scot : mix(prev.g, scot, uRate);
+  gl_FragColor = vec4(e, sc, 0., 1.);
 }`;
 
 const B_FS = `
-varying vec2 vUv; uniform sampler2D uHdr, uExp; uniform float uGlare, uTime, uFade, uSat;
+varying vec2 vUv; uniform sampler2D uHdr, uExp, uHold; uniform float uGlare, uTime, uFade, uSat, uHoldK;
 vec3 aces(vec3 x){ x *= 0.6; return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0., 1.); }
 float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
 void main(){
-  float e = texture(uExp, vec2(0.5)).r;
+  vec2 ex = texture(uExp, vec2(0.5)).rg; float e = ex.r;
   vec3 c = texture(uHdr, vUv).rgb;
   vec3 g = textureLod(uHdr, vUv, 2.5).rgb*0.3 + textureLod(uHdr, vUv, 4.).rgb*0.3 + textureLod(uHdr, vUv, 5.5).rgb*0.25 + textureLod(uHdr, vUv, 7.).rgb*0.15;
   c = mix(c, g, uGlare);
   c *= e;
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
   c = mix(vec3(l), c, uSat);
+  // scotopic vision: colour fades and shifts blue in dim areas; bright lamps keep their colour (cones)
+  c = mix(c, vec3(l)*vec3(0.80, 0.90, 1.16), ex.g*0.85*(1. - smoothstep(0.25, 1.2, l)));
   c = aces(c);
   vec2 q = vUv - 0.5; c *= 1. - dot(q, q)*0.55;
   c = pow(c, vec3(1./2.2));
-  c += (hash(vUv*vec2(1920., 1080.) + fract(uTime)*71.) - 0.5)*0.022;
+  c += (hash(vUv*vec2(1920., 1080.) + fract(uTime)*71.) - 0.5)*(0.022 + 0.02*ex.g);
+  if (uHoldK > 0.) c = mix(c, texture(uHold, vUv).rgb, uHoldK);  // dissolve over a wave-tile rescale
   gl_FragColor = vec4(c*uFade, 1.);
 }`;
 
@@ -129,8 +139,10 @@ export class Post {
     this.mA = fsMat(A_FS, { uScene: { value: null }, uDepth: { value: null }, uPano: { value: sky.pano.texture }, uNoise3: { value: sky.noise },
       uInvViewProj: { value: this.inv }, uPrevViewProj: { value: this.prevVP }, uCamPos: { value: new THREE.Vector3() }, uWind: { value: new THREE.Vector3() },
       uFlash: { value: new THREE.Vector4(0, 1, 0, 0) }, uRainGain: { value: 0.3 }, uFogExt: { value: 0 }, uSpray: { value: 0 }, uMB: { value: 1 }, uRain: { value: 0 }, uTime: { value: 0 }, uAspect: { value: 1 }, uSeaY: { value: 0 }, uRainDir: { value: new THREE.Vector2(0, -1) } });
-    this.mE = fsMat(EXP_FS, { uHdr: { value: null }, uPrev: { value: null }, uRate: { value: 0.05 }, uKey: { value: 0.16 }, uLod: { value: 6 } });
-    this.mB = fsMat(B_FS, { uHdr: { value: null }, uExp: { value: null }, uGlare: { value: 0.06 }, uTime: { value: 0 }, uFade: { value: 1 }, uSat: { value: 0.92 } });
+    this.mE = fsMat(EXP_FS, { uHdr: { value: null }, uPrev: { value: null }, uRate: { value: 0.05 }, uKey: { value: 0.16 }, uLod: { value: 6 }, uPre: { value: 1 }, uLref: { value: 1e-3 } });
+    this.mB = fsMat(B_FS, { uHdr: { value: null }, uExp: { value: null }, uGlare: { value: 0.06 }, uTime: { value: 0 }, uFade: { value: 1 }, uSat: { value: 0.92 }, uHold: { value: null }, uHoldK: { value: 0 } });
+    this.copyMat = fsMat(`varying vec2 vUv; uniform sampler2D uTex; void main(){ gl_FragColor = vec4(texture2D(uTex, vUv).rgb, 1.); }`, { uTex: { value: null } });
+    this.holdK = 0; this.pre = 1; this.lref = 1e-3;
     this.mC = fsMat(C_FS, { uLdr: { value: null }, uTime: { value: 0 }, uWet: { value: 0 }, uAspect: { value: 1 }, uSlide: { value: new THREE.Vector2(0, -1) } });
     this.opts = { motionBlur: true, lens: true };
     this.wet = 0; this.fade = 1; this.msaa = 4;
@@ -138,7 +150,8 @@ export class Post {
   }
   resize(w, h) {
     this.w = w; this.h = h;
-    for (const k of ['scene', 'hdr', 'ldr']) if (this[k]) this[k].dispose();
+    for (const k of ['scene', 'hdr', 'ldr', 'hold']) if (this[k]) this[k].dispose();
+    this.hold = rt(w, h, { type: THREE.UnsignedByteType }); this.holdK = 0;
     this.scene = rt(w, h, { depth: true, samples: this.msaa });
     this.scene.depthTexture = new THREE.DepthTexture(w, h); this.scene.depthTexture.type = THREE.UnsignedIntType;
     this.hdr = rt(w, h, { mips: true, min: THREE.LinearMipmapLinearFilter });
@@ -146,6 +159,8 @@ export class Post {
     this.mE.uniforms.uLod.value = Math.max(0, Math.floor(Math.log2(Math.max(w, h))) - 2);
     this.mA.uniforms.uAspect.value = w / h; this.mC.uniforms.uAspect.value = w / h;
   }
+  // Freeze the current frame and dissolve from it over ~0.7 s (hides a wave-tile rescale).
+  holdFrame() { this.copyMat.uniforms.uTex.value = this.ldr.texture; this.pass.render(this.copyMat, this.hold); this.r.setRenderTarget(null); this.holdK = 1; }
   // env: {fogExt (1/m), spray, rain 0..1, wind THREE.Vector3 m/s, rainDir Vector2, seaY}
   render(scene, cam, time, dt, env, override) {
     const r = this.r;
@@ -159,9 +174,10 @@ export class Post {
     this.pass.render(this.mA, this.hdr);
     this.prevVP.copy(this.vp);
     const e = this.mE.uniforms, src = this.exp[this.ei], dst = this.exp[1 - this.ei];
-    e.uHdr.value = this.hdr.texture; e.uPrev.value = src.texture; e.uRate.value = 1 - Math.exp(-dt * (env.adapt ?? 1.2)); e.uKey.value = env.key ?? 0.16;
+    e.uHdr.value = this.hdr.texture; e.uPrev.value = src.texture; e.uRate.value = 1 - Math.exp(-dt * (env.adapt ?? 1.2)); e.uKey.value = env.key ?? 0.16; e.uPre.value = this.pre; e.uLref.value = this.lref;
     this.pass.render(this.mE, dst); this.ei = 1 - this.ei;
     const b = this.mB.uniforms; b.uHdr.value = this.hdr.texture; b.uExp.value = dst.texture; b.uTime.value = time; b.uFade.value = this.fade; b.uGlare.value = 0.04 + 0.05 * env.rain;
+    this.holdK = Math.max(0, this.holdK - dt / 0.7); b.uHold.value = this.hold.texture; b.uHoldK.value = this.holdK;
     const wet = this.opts.lens ? this.wet : 0;
     this.pass.render(this.mB, this.ldr);
     const c = this.mC.uniforms; c.uLdr.value = this.ldr.texture; c.uTime.value = time; c.uWet.value = wet; c.uSlide.value.copy(env.rainDir);

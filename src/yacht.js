@@ -163,7 +163,7 @@ export function buildYacht() {
   add(bars([[new THREE.Vector3(0, sheer(0.99), zOf(0.99)), new THREE.Vector3(0, sheer(0.99) + 2.2, zOf(0.99) - 0.3)], [new THREE.Vector3(0, sheer(0.01), zOf(0.012)), new THREE.Vector3(0, sheer(0.01) + 2.6, zOf(0.0) + 0.5)]], 0.035), mSteel);
   // navigation lights
   const lights = [[-3.2, 7.2, zOf(0.56), 0xff2a1a], [3.2, 7.2, zOf(0.56), 0x1aff4a], [0, my + 5.5, mz + 0.55, 0xfff4dd], [0, 3.6, zOf(0.005), 0xfff4dd]];
-  g.userData.nav = lights.map(([x, y, z, c]) => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(1) })); m.position.set(x, y, z); g.add(m); return m; });
+  g.userData.nav = lights.map(([x, y, z, c]) => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(1) })); m.position.set(x, y, z); m.userData.base = new THREE.Color(c); g.add(m); return m; });
   g.userData.mats = [mHull, mWhite, mTeak, mWall];
   return g;
 }
