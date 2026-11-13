@@ -8,10 +8,12 @@ export class Input {
     addEventListener('keydown', (e) => { if (!this.k[e.code]) this.pressed.push(e.code); this.k[e.code] = true; if (/Arrow|Space/.test(e.code)) e.preventDefault(); });
     addEventListener('keyup', (e) => { this.k[e.code] = false; });
     addEventListener('blur', () => { this.k = {}; });
-    let drag = null;
-    el.addEventListener('pointerdown', (e) => { drag = [e.clientX, e.clientY]; });
-    addEventListener('pointerup', () => { drag = null; });
-    addEventListener('pointermove', (e) => { if (!drag) return; this.look.yaw -= (e.clientX - drag[0]) * 0.005; this.look.pitch = clamp(this.look.pitch + (e.clientY - drag[1]) * 0.003, -0.25, 0.6); drag = [e.clientX, e.clientY]; });
+    let drag = null; // one pointer looks around (the touch stick is a separate element with its own pointer)
+    this.stick = null; // {x, y} in -1..1 from the on-screen stick (phones): x rudder, y forward
+    el.addEventListener('pointerdown', (e) => { drag = [e.clientX, e.clientY, e.pointerId]; });
+    addEventListener('pointerup', (e) => { if (drag && e.pointerId === drag[2]) drag = null; });
+    addEventListener('pointercancel', (e) => { if (drag && e.pointerId === drag[2]) drag = null; });
+    addEventListener('pointermove', (e) => { if (!drag || e.pointerId !== drag[2]) return; this.look.yaw -= (e.clientX - drag[0]) * 0.005; this.look.pitch = clamp(this.look.pitch + (e.clientY - drag[1]) * 0.003, -0.25, 0.6); drag = [e.clientX, e.clientY, drag[2]]; });
   }
   update(dt) {
     const k = this.k; let th = (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 0.5 : 0), rd = (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0);
@@ -22,6 +24,7 @@ export class Input {
       const sx = dz(gp.axes[0] || 0); if (sx) rd = sx;
       this.look.yaw -= dz(gp.axes[2] || 0) * dt * 1.6; this.look.pitch = clamp(this.look.pitch + dz(gp.axes[3] || 0) * dt, -0.25, 0.6);
     }
+    if (this.stick) { th = clamp(-this.stick.y, -0.5, 1); rd = this.stick.x; }
     this.throttle += clamp(th - this.throttle, -dt * 1.6, dt * 1.4);
     this.rudder += clamp(rd - this.rudder, -dt * 2.2, dt * 2.2);
     if (!k.pointer) this.look.yaw *= Math.exp(-dt * 0.35);

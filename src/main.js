@@ -22,7 +22,10 @@ const canvas = $('c');
 let renderer;
 try { renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' }); if (!renderer.capabilities.isWebGL2) throw 0; }
 catch (e) { $('msg').style.display = 'flex'; $('msg').textContent = 'This prototype needs WebGL 2 with a hardware graphics card. It could not start in this browser.'; throw e; }
-const LOW = location.hash === '#low';
+// phones (coarse pointer, small screen; or #phone to test): lighter rendering, touch stick, compact panels
+const PHONE = location.hash === '#phone' || (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820);
+const LOW = location.hash === '#low' || PHONE;
+if (PHONE) document.body.classList.add('phone');
 const DPR = Math.min(window.devicePixelRatio || 1, 1.5);
 const Q = { scale: 1, acc: 0, n: 0 };
 let W = innerWidth, H = innerHeight;
@@ -31,7 +34,7 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(48, W / H, 0.5, 200000);
 const sky = new Sky(renderer, LOW); scene.add(sky.bg);
 const noise = noise2D(256);
-const sim = new OceanSim(renderer, [{ N: 128, L: 4000 }, { N: 256, L: 500 }, { N: 256, L: 57 }]);
+const sim = new OceanSim(renderer, PHONE ? [{ N: 64, L: 4000 }, { N: 128, L: 500 }, { N: 128, L: 57 }] : [{ N: 128, L: 4000 }, { N: 256, L: 500 }, { N: 256, L: 57 }]);
 const ocean = new Ocean(sim, sky, noise); scene.add(ocean.mesh);
 const post = new Post(renderer, sky, Math.round(W * Q.scale), Math.round(H * Q.scale));
 const yacht = buildYacht(); scene.add(yacht);
@@ -274,9 +277,9 @@ function applyQuality() {
 }
 function govern(ms, dt) {
   GOV.ema += (Math.min(ms, 250) - GOV.ema) * 0.06; GOV.hold -= dt;
-  if (GOV.hold <= 0 && !LOW && GOV.fixed == null) {
+  if (GOV.hold <= 0 && (!LOW || PHONE) && GOV.fixed == null) {
     if (GOV.ema > 23 && GOV.level > 0) { GOV.level--; GOV.hold = 2.0; applyQuality(); }
-    else if (GOV.ema < 12 && GOV.level < LEVELS.length - 1) { GOV.level++; GOV.hold = 7; applyQuality(); }
+    else if (GOV.ema < 12 && GOV.level < (PHONE ? 1 : LEVELS.length - 1)) { GOV.level++; GOV.hold = 7; applyQuality(); }
   }
   fpsT -= dt; if (fpsT <= 0) { fpsT = 0.5; $('fps').textContent = GOV.show ? `${Math.round(1000 / GOV.ema)} fps · quality ${GOV.level + 1}/4 · ${mode}` : ''; }
 }
@@ -401,7 +404,7 @@ let mode = 'storm', it = 0, flashes = 0;
 const lerp = (a, b, k) => a + (b - a) * k;
 function startIntro() {
   mode = 'intro'; it = 0; flashes = 0; title.classList.remove('on', 'eye'); dv.rise = false; reveal = null; $('skip').textContent = 'Skip intro'; shore.group.visible = true; yacht.visible = spray.mesh.visible = false; if (LT.bolt) LT.bolt.visible = false;
-  for (const id of ['hud', 'help', 'note', 'map', 'time', 'settings']) $(id).classList.add('hide'); $('skip').style.display = 'block';
+  for (const id of ['hud', 'help', 'note', 'map', 'time', 'settings', 'stick']) $(id).classList.add('hide'); $('skip').style.display = 'block';
   sky.resetLight(); post.pre = 1; LT.gain = 1; loadSat('AL122005'); sky.u.uUseSat.value = sat.ready && sat.id === 'AL122005' ? 1 : 0; // the intro is Katrina's
   ocean.u.uShore.value = 1; ocean.u.uBoatOn.value = 0; sky.u.uMode.value = 1; sky.first = true; applyQuality(); post.fade = 0; post.wet = 0; LT.next = 1e9; LT.t0 = -1;
   shore.u.uWindDir.value.set(0.8, 0, 0.6).normalize(); seaS = { hs: 0.35, tp: 7, dx: 0.15, dz: 0.99, wx: 0.8, wz: 0.6, iso: 0.25 }; sim.setSea(seaS); sim.setScale(sim.scaleFor(8.5)); ocean.syncScale();
@@ -465,7 +468,7 @@ const KN = [[0, Math.log(1700)], [0.6, Math.log(17)], [0.76, Math.log(0.5)], [1,
 const lnAlt = (p) => { for (let i = 1; i < KN.length; i++) if (p <= KN[i][0]) { const f = (p - KN[i - 1][0]) / (KN[i][0] - KN[i - 1][0]); return lerp(KN[i - 1][1], KN[i][1], f); } return KN[KN.length - 1][1]; };
 function startDive() {
   startStorm(); mode = 'dive'; dv.t = 0; dv.rise = false; title.classList.remove('on', 'eye');
-  for (const id of ['hud', 'help', 'note', 'map', 'time', 'settings']) $(id).classList.add('hide'); $('skip').style.display = 'block'; $('skip').textContent = 'Skip';
+  for (const id of ['hud', 'help', 'note', 'map', 'time', 'settings', 'stick']) $(id).classList.add('hide'); $('skip').style.display = 'block'; $('skip').textContent = 'Skip';
   // begin high over the outer rain bands, outward from where the yacht is
   const out = v3.set(boat.x - center.x, 0, boat.z - center.z).normalize();
   dv.start.set(boat.x + out.x * 110e3 - out.z * 40e3, 0, boat.z + out.z * 110e3 + out.x * 40e3);
@@ -479,7 +482,7 @@ function startRise() {
   const K = ARCHIVE.find((s) => s.id === 'AL122005'); setStorm(K); loadSat(K.id);
   clock.t = SATIDX.AL122005?.t || Date.UTC(2005, 7, 28, 16, 25); clock.si = 0; st = stormNow(clock.t); // the photo's own time, so its eye sits on the track
   startStorm(); setPaused(true); mode = 'dive'; dv.rise = true; dv.t = 0;
-  for (const id of ['hud', 'help', 'note', 'map', 'time', 'settings']) $(id).classList.add('hide'); $('skip').style.display = 'block'; $('skip').textContent = 'Skip intro';
+  for (const id of ['hud', 'help', 'note', 'map', 'time', 'settings', 'stick']) $(id).classList.add('hide'); $('skip').style.display = 'block'; $('skip').textContent = 'Skip intro';
   post.fade = 0; post.wet = 0.9; title.classList.add('eye'); post.opts.motionBlur = false; // fast climb: blur would smear the reveal
 }
 function riseCamera(dt) {
@@ -496,7 +499,7 @@ function riseCamera(dt) {
 }
 function startReveal() {
   dv.rise = false; mode = 'globe'; $('skip').style.display = 'block'; $('fps').textContent = ''; post.opts.motionBlur = SET.blur;
-  for (const id of ['hud', 'help', 'note', 'map', 'time', 'settings']) $(id).classList.add('hide');
+  for (const id of ['hud', 'help', 'note', 'map', 'time', 'settings', 'stick']) $(id).classList.add('hide');
   const K = ARCHIVE.find((s) => s.id === 'AL122005'), p = pointAtTime(K, clock.t);
   Object.assign(globe.view, { lat: p.lat, lon: p.lon, dist: 1 + 1500 / 6371, vLat: 0, vLon: 0 }); globe.select(null);
   globe.flyTo(24, -68, 3.4, 4.6); globe.startReveal(); reveal = { t: 0 };
@@ -531,9 +534,9 @@ const inIntro = () => mode === 'intro' || dv.rise || reveal;
 $('skip').addEventListener('click', () => (inIntro() ? startGlobe() : startStorm()));
 // ---- settings (O, or the Settings button): kept in this browser's storage when it is available ----
 const SET_KEYS = [['hud', 'Readout', 'H'], ['map', 'Storm map', 'N'], ['help', 'Key help', ''], ['lens', 'Rain and spray on the lens', 'L'], ['shake', 'Camera shake', 'K'], ['blur', 'Motion blur', 'M'], ['lightning', 'Lightning', 'T'], ['fps', 'Frame rate', 'F']];
-const SET = { hud: true, map: true, help: true, lens: true, shake: true, blur: true, lightning: true, fps: true, quality: 'auto' };
+const SET = { hud: true, map: true, help: !PHONE, lens: true, shake: true, blur: true, lightning: true, fps: true, quality: 'auto' };
 try { Object.assign(SET, JSON.parse(localStorage.getItem('eyewall.settings') || '{}')); } catch (e) { /* storage unavailable: defaults */ }
-function showStormUI() { for (const id of ['note', 'time']) $(id).classList.remove('hide'); for (const id of ['hud', 'map', 'help']) $(id).classList.toggle('hide', !SET[id]); }
+function showStormUI() { for (const id of ['note', 'time'].concat(PHONE ? ['stick'] : [])) $(id).classList.remove('hide'); for (const id of ['hud', 'map', 'help']) $(id).classList.toggle('hide', !SET[id]); }
 function applySet() {
   post.opts.lens = SET.lens; chase.shakeOn = SET.shake; post.opts.motionBlur = SET.blur; LT.on = SET.lightning; GOV.show = SET.fps; if (!SET.fps) $('fps').textContent = '';
   GOV.fixed = SET.quality === 'auto' ? null : +SET.quality; if (GOV.fixed != null && GOV.level !== GOV.fixed) { GOV.level = GOV.fixed; applyQuality(); }
@@ -550,6 +553,18 @@ function drawSettings() {
 function toggleSettings() { $('settings').classList.toggle('hide'); drawSettings(); }
 $('settings').addEventListener('click', (e) => { if (e.target.dataset.x != null) { $('settings').classList.add('hide'); return; } const q = e.target.dataset.q; if (q != null) { SET.quality = q; applySet(); } });
 $('settings').addEventListener('change', (e) => { const k = e.target.dataset.k; if (k) { SET[k] = e.target.checked; applySet(); } });
+
+// ---- touch stick (phones): drag from its centre; up = ahead, sideways = rudder ----
+{
+  const el = $('stick'), knob = el.querySelector('i'); let id = null, c = null;
+  const set = (e) => { const R = el.offsetWidth / 2, dx = e.clientX - c[0], dy = e.clientY - c[1], m = Math.min(1, Math.hypot(dx, dy) / R) / (Math.hypot(dx, dy) / R || 1);
+    input.stick = { x: (dx / R) * m, y: (dy / R) * m }; knob.style.transform = `translate(${dx * m}px, ${dy * m}px)`; };
+  el.addEventListener('pointerdown', (e) => { id = e.pointerId; const r = el.getBoundingClientRect(); c = [r.left + r.width / 2, r.top + r.height / 2]; el.setPointerCapture(id); set(e); e.preventDefault(); });
+  el.addEventListener('pointermove', (e) => { if (e.pointerId === id) set(e); });
+  const end = (e) => { if (e.pointerId !== id) return; id = null; input.stick = { x: 0, y: input.stick?.y ?? 0 }; knob.style.transform = `translate(0px, ${(input.stick.y * el.offsetWidth) / 2}px)`; };
+  el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+  // the throttle holds where you leave it (like a lever); the rudder springs back to centre
+}
 
 // ---- storm-time controls ----
 const timeBar = $('time');
@@ -600,7 +615,7 @@ function globeFrame(dt) {
 function startGlobe() {
   if (reveal) { reveal = null; globe.endReveal(); } if (dv.rise) post.opts.motionBlur = SET.blur; dv.rise = false; $('fps').textContent = ''; shore.group.visible = false; $('year').classList.remove('on');
   mode = 'globe'; title.classList.remove('on', 'eye'); $('skip').style.display = 'none';
-  for (const id of ['hud', 'help', 'note', 'map', 'time', 'settings']) $(id).classList.add('hide');
+  for (const id of ['hud', 'help', 'note', 'map', 'time', 'settings', 'stick']) $(id).classList.add('hide');
   canvas.style.cursor = 'grab'; resize(); gui.show(true);
   if (gui.live.length && !gui.touched && !cur.live) gui.select(gui.live[0], null, true);
   else gui.select(cur, pointAtTime(cur, clock.t));

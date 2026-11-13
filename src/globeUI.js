@@ -46,6 +46,9 @@ export class GlobeUI {
       <div id="gl-live"></div><div id="gl-count"></div><div id="gl-list"></div>`;
     $('gl-legend').innerHTML = ['TD', 'TS', '1', '2', '3', '4', '5'].map((c) => `<span>${chip(c)}${c === 'TD' ? 'Depression' : c === 'TS' ? 'Trop. storm' : 'Cat ' + c}</span>`).join('') +
       '<em>Track colours: Wikipedia track-map scheme (NHC has no colour standard) · <a href="methodology.html" target="_blank" rel="noopener">Methodology and sources</a></em>';
+    $('gl-arch').querySelector('.gh').onclick = () => { if (innerWidth <= 760) $('gl-arch').classList.toggle('collapsed'); };
+    if (innerWidth <= 760) $('gl-arch').classList.add('collapsed');
+    $('gl-info').addEventListener('click', (e) => { if (e.target.classList.contains('close')) this.select(null); });
     $('gl-year').onchange = (e) => { this.f.year = e.target.value; this.apply(); };
     $('gl-q').oninput = (e) => { this.f.q = e.target.value.trim().toLowerCase(); this.apply(); };
     $('gl-basins').onclick = (e) => { const b = e.target.dataset.b; if (!b) return; const S = this.f.basins; S.has(b) ? S.delete(b) : S.add(b); if (!S.size) S.add(b); this.apply(); };
@@ -54,10 +57,13 @@ export class GlobeUI {
     this.live = []; this.liveDoc = null;
     $('gl-list').onclick = (e) => { const r = e.target.closest('[data-i]'); if (r) this.select(this.storms[+r.dataset.i], null, true); };
     // pointer: drag to turn, wheel to zoom, click a track to select, drag along the selected track to pick a time
-    let down = null, last = null, moved = 0, scrub = false, hovT = 0;
-    canvas.addEventListener('pointerdown', (e) => { if (!this.active) return; down = last = [e.clientX, e.clientY]; moved = 0; scrub = !!(this.sel && this.g.pick(e.clientX, e.clientY, true)); if (scrub) this.scrubTo(e); });
+    let down = null, last = null, moved = 0, scrub = false, hovT = 0; const pts = new Map(); let pinch = 0;
+    canvas.addEventListener('pointerdown', (e) => { pts.set(e.pointerId, [e.clientX, e.clientY]); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); down = null; moved = 99; return; } });
+    canvas.addEventListener('pointerdown', (e) => { if (!this.active || pts.size > 1) return; down = last = [e.clientX, e.clientY]; moved = 0; scrub = !!(this.sel && this.g.pick(e.clientX, e.clientY, true)); if (scrub) this.scrubTo(e); });
     addEventListener('pointermove', (e) => {
       if (!this.active) return;
+      if (pts.has(e.pointerId)) { pts.set(e.pointerId, [e.clientX, e.clientY]); if (pts.size === 2) { const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (pinch && d) this.g.zoom(pinch / d); pinch = d; return; } }
+      if (e.pointerType === 'touch' && !down) return;
       if (down) { const dx = e.clientX - last[0], dy = e.clientY - last[1]; moved += Math.abs(dx) + Math.abs(dy); last = [e.clientX, e.clientY]; if (scrub) this.scrubTo(e); else this.g.drag(dx, dy); this.dragging = true; return; }
       const now = performance.now(); if (now - hovT < 40) return; hovT = now;
       const h = this.g.pick(e.clientX, e.clientY); this.g.hover(h?.storm || null);
@@ -65,7 +71,10 @@ export class GlobeUI {
       if (h) { const p = pointAt(h.storm, h.i, h.f); tip.style.display = 'block'; tip.style.left = e.clientX + 14 + 'px'; tip.style.top = e.clientY + 12 + 'px'; tip.innerHTML = `${chip(catOf(p.v))}<b>${h.storm.name}</b> ${h.storm.year} · ${Math.round(p.v)} kt`; canvas.style.cursor = 'pointer'; }
       else { tip.style.display = 'none'; canvas.style.cursor = 'grab'; }
     });
+    const lift = (e) => { pts.delete(e.pointerId); if (pts.size < 2) pinch = 0; };
+    addEventListener('pointercancel', lift);
     addEventListener('pointerup', (e) => {
+      lift(e);
       if (!this.active || !down) return;
       if (moved < 5 && !scrub) { const h = this.g.pick(e.clientX, e.clientY); if (h) { this.touched = true; this.select(h.storm, pointAt(h.storm, h.i, h.f)); } }
       down = null; scrub = false; this.dragging = false;
@@ -110,7 +119,7 @@ export class GlobeUI {
     const toll = !T ? '<p class="dim">Not compiled yet.</p>' :
       `<div class="row2"><span class="k">Deaths</span><b>${T.deaths}</b></div><div class="row2"><span class="k">Damage</span><b>${T.damage}</b></div>${T.note ? `<p class="dim">${T.note}</p>` : ''}`;
     const rep = T?.pdf ? `<a href="https://www.nhc.noaa.gov/data/tcr/${T.pdf}" target="_blank" rel="noopener">NOAA Tropical Cyclone Report (PDF)</a>` : '';
-    $('gl-info').innerHTML = `<div class="gh"><b>${title(s)}</b><span>${BASIN[s.basin]} · ${span(s)}</span></div>
+    $('gl-info').innerHTML = `<button class="close" aria-label="Close">×</button><div class="gh"><b>${title(s)}</b><span>${BASIN[s.basin]} · ${span(s)}</span></div>
       <div class="row2"><span class="k">Peak</span><b>${s.peak} kt · ${s.pmin ?? '—'} mb · ${s.cat === 'TD' || s.cat === 'TS' ? catName(s.cat) : 'Cat ' + s.cat}</b></div>
       <div class="sec">Human toll and damage</div>${toll}<div class="src">${rep}</div>
       <div class="sec">Start point</div>
@@ -131,7 +140,7 @@ export class GlobeUI {
     const fpk = L.fc.reduce((a, f) => (f.tau > 0 && f.v > (a?.v ?? -1) ? f : a), null);
     const lnk = [[L.pub, 'Public advisory'], [L.disc, 'Forecast discussion'], [L.gfx, 'NHC graphics']].filter((x) => x[0]).map(([u, n]) => `<a href="${u}" target="_blank" rel="noopener">${n}</a>`).join(' · ');
     const ok = s.t.length > 1;
-    $('gl-info').innerHTML = `<div class="gh"><b>${title(s)}</b><span>${BASIN[s.basin]} · <em class="${L.demo ? 'demo' : 'live'}">${L.demo ? 'Demo replay' : 'Live'}</em> · advisory ${+L.adv || '—'}</span></div>
+    $('gl-info').innerHTML = `<button class="close" aria-label="Close">×</button><div class="gh"><b>${title(s)}</b><span>${BASIN[s.basin]} · <em class="${L.demo ? 'demo' : 'live'}">${L.demo ? 'Demo replay' : 'Live'}</em> · advisory ${+L.adv || '—'}</span></div>
       ${L.demo ? `<p class="warn">${L.demo}</p>` : ''}
       <div class="row2"><span class="k">Issued</span><b>${fmtT(it)}${L.demo ? '' : ` · ${ago(it)}`}</b></div>
       <div class="row2"><span class="k">Now</span><b>${chip(catOf(L.v))}${L.v} kt (${Math.round(L.v * 1.15078)} mph) · ${L.p ?? '—'} mb</b></div>

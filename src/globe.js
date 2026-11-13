@@ -224,7 +224,10 @@ export class Globe {
   // pointer controls (called by the UI layer)
   drag(dx, dy) { const v = this.view, k = 0.12 * (v.dist - 1); v.vLon = -dx * k; v.vLat = dy * k; v.lon += v.vLon; v.lat = Math.max(-80, Math.min(80, v.lat + v.vLat)); this.fly = null; }
   zoom(f) { const v = this.view; v.dist = Math.max(1.25, Math.min(7, 1 + (v.dist - 1) * f)); this.fly = null; }
-  resize(w, h, dpr) { this.W = w; this.H = h; this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); for (const m of [this.selMat, this.hovMat, this.liveMat, this.fcMat, this.coneLine]) m.resolution.set(w * dpr, h * dpr); this.dotMat.uniforms.uDpr.value = dpr; }
+  resize(w, h, dpr) { this.W = w; this.H = h; this.camera.aspect = w / h;
+    // narrow screens: the panels are bottom sheets, so draw the globe higher up the screen
+    if (w <= 760) this.camera.setViewOffset(w, h, 0, h * 0.24, w, h); else this.camera.clearViewOffset();
+    this.camera.updateProjectionMatrix(); for (const m of [this.selMat, this.hovMat, this.liveMat, this.fcMat, this.coneLine]) m.resolution.set(w * dpr, h * dpr); this.dotMat.uniforms.uDpr.value = dpr; }
   frame(dt, dragging) {
     this.t += dt; const v = this.view;
     if (this.fly) {
