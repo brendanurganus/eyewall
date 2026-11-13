@@ -118,6 +118,29 @@ export class Globe {
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     this.all.geometry.dispose(); this.all.geometry = g;
   }
+  // intro: every track drawn in date order. All segments sorted by time; the draw range grows with f.
+  startReveal() {
+    const tOf = (k) => Date.UTC(+k.slice(0, 4), +k.slice(4, 6) - 1, +k.slice(6, 8), +k.slice(8, 10), +k.slice(10, 12));
+    const segs = [];
+    for (const s of this.storms) {
+      const P = this.ptsOf(s);
+      for (let i = 0; i < P.length - 1; i++) {
+        const n = Math.max(1, Math.ceil(P[i].distanceTo(P[i + 1]) / 0.02)), c = COLS[catOf(s.v[i])], ta = tOf(s.t[i]), tb = tOf(s.t[i + 1]);
+        for (let k = 0; k < n; k++) segs.push([ta + (tb - ta) * (k / n), P[i].clone().lerp(P[i + 1], k / n).setLength(1.004), P[i].clone().lerp(P[i + 1], (k + 1) / n).setLength(1.004), c]);
+      }
+    }
+    segs.sort((a, b) => a[0] - b[0]);
+    const pos = new Float32Array(segs.length * 6), col = new Float32Array(segs.length * 6); this.revT = new Float64Array(segs.length);
+    segs.forEach(([t, a, b, c], j) => { pos.set([a.x, a.y, a.z, b.x, b.y, b.z], j * 6); col.set([c.r, c.g, c.b, c.r, c.g, c.b], j * 6); this.revT[j] = t; });
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    this.all.geometry.dispose(); this.all.geometry = g; g.setDrawRange(0, 0); this.allMat.opacity = 0.6; this.liveGrp.visible = false;
+  }
+  setReveal(f) {
+    const T = this.revT; if (!T) return; const tc = T[0] + (T[T.length - 1] - T[0]) * f;
+    let lo = 0, hi = T.length; while (lo < hi) { const m = (lo + hi) >> 1; if (T[m] <= tc) lo = m + 1; else hi = m; }
+    this.all.geometry.setDrawRange(0, lo * 2); return tc;
+  }
+  endReveal() { if (!this.revT) return; this.revT = null; this.liveGrp.visible = true; this.allMat.opacity = this.selected ? 0.22 : 0.5; this.buildAll(); }
   setVisible(fn) { this.visible = this.storms.map(fn); this.buildAll(); }
   fat(s, mat) {
     const pos = [], col = []; let first = true;

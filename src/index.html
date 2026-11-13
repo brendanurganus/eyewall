@@ -13,6 +13,8 @@ canvas#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-actio
 #map{position:fixed;right:14px;top:14px;width:190px;height:190px;background:rgba(6,14,22,.62);border:1px solid rgba(110,170,210,.28);backdrop-filter:blur(3px)}
 #title{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0;transition:opacity .9s ease}
 #title svg{width:min(64vw,780px);filter:drop-shadow(0 3px 18px rgba(0,0,0,.55));transform:scale(1.14);transition:transform 1.1s cubic-bezier(.16,.9,.25,1)}
+#year{position:fixed;left:50%;bottom:9%;transform:translateX(-50%);font-size:13px;letter-spacing:.4em;color:#9fd0f0;opacity:0;transition:opacity .6s;pointer-events:none;font-variant-numeric:tabular-nums}#year.on{opacity:.85}
+#title.eye svg{width:min(24vw,290px)}
 #title.on{opacity:1;transition:opacity .07s linear}
 #title.on svg{transform:scale(1)}
 @media (prefers-reduced-motion:reduce){#title svg{transition:none;transform:none}}
@@ -71,7 +73,7 @@ canvas#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-actio
 <canvas id="map" class="hide" width="380" height="380"></canvas>
 <div id="time" class="hide"></div><div id="settings" class="hide"></div>
 <div id="gl-arch" class="hide"></div><div id="gl-info" class="hide"></div><div id="gl-legend" class="hide"></div><div id="gl-tip"></div><div id="fade"></div>
-<div id="title"><svg viewBox="-10 -10 588 120" aria-label="Eyewall"><defs><clipPath id="cap"><rect x="-10" y="0" width="588" height="100"/></clipPath></defs>
+<div id="year"></div><div id="title"><svg viewBox="-10 -10 588 120" aria-label="Eyewall"><defs><clipPath id="cap"><rect x="-10" y="0" width="588" height="100"/></clipPath></defs>
 <g clip-path="url(#cap)" fill="none" stroke="#fff" stroke-width="16" stroke-linejoin="miter" stroke-miterlimit="6">
 <path d="M8,-5V105M0,8H58M8,50H50M0,92H58"/>
 <path transform="translate(72)" d="M4,-8L38,54L72,-8M38,50V105"/>
