@@ -182,6 +182,21 @@ function lighting(time) {
   sky$.sunStorm = sunPosition(time, st.lat, st.lon).el;
   return pre;
 }
+// A low sun (or moon) shining through the storm's cloud shield. The sky shader looks only a few km
+// toward the light for cloud in the way, which is right for a high sun but lets a sun near or below the
+// horizon light the deck from underneath (the whole scene turned red at twilight). Here the light's path
+// at cloud level is followed across the shield: dense core (CDO) and banded outer region, and the cloud
+// light is dimmed by that path. Sea-level views only: from above, cloud tops do catch the low sun.
+function shieldLowSun() {
+  const el = LV.el, low = 1 - sm(0.05, 0.2, el); if (low <= 0) return;
+  const px = (boat.x - center.x) / 1e3, pn = -(boat.z - center.z) / 1e3, dx = Math.sin(LV.az), dn = Math.cos(LV.az);
+  const chord = (R) => { const b = px * dx + pn * dn, c = px * px + pn * pn - R * R, h = b * b - c; if (h <= 0) return 0; const q = Math.sqrt(h); return Math.max(0, -b + q) - Math.max(0, -b - q); };
+  const cdo = chord(st.cdoR / 1e3), outer = chord(st.outerR / 1e3);
+  const tau = cdo / 8 + Math.max(0, outer - cdo) / 35;   // km of dense deck / of banded cloud per unit optical depth
+  let f = 1 - low * (1 - Math.exp(-tau));
+  if (mode === 'dive') f += (1 - f) * sm(2e3, 15e3, dv.alt);
+  sky.u.uSunCol.value.multiplyScalar(f); sky.bgMat.uniforms.uSunCol.value.multiplyScalar(f); LV.shield = f;
+}
 // NASA photo of the current storm, if the archive has one (tools/satlib.py: the daytime pass on its
 // peak day; the overpass minute is estimated from the satellite's orbit). Used within 12 h of the pass.
 const sat = { id: null, meta: null, ready: false };
@@ -334,6 +349,7 @@ function frame(now) {
   const sunVis = 1 - sm(st.eyeR * 0.6, st.eyeR * 0.95, distC) + sm(outerR * 0.95, outerR * 1.3, distC);
   // sun + sky
   const pre = lighting(clock.t);
+  shieldLowSun();
   const su = sky.u; su.uUseSat.value = satOK() ? 1 : 0;
   dive.u.uKeyUp.value = sm(-0.1, 0.05, LV.el);
   dive.u.uPhoto.value += ((satOK() && sky$.sunStorm > 3 * D2R ? 1 : 0) - dive.u.uPhoto.value) * Math.min(1, dt * 2); su.uEyeR.value = st.eyeR / 1e3; su.uRm.value = st.rm / 1e3; su.uCdoR.value = cdoR / 1e3; su.uOuterR.value = outerR / 1e3; su.uSpin.value = st.vmax / 1e3; su.uRain.value = 1;

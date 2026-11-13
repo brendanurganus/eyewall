@@ -19,7 +19,7 @@ for (const spec of specs) {
     r.readRenderTargetPixels(rt, 0, 0, 1, 1, b); const f = (v) => E.THREE.DataUtils.fromHalfFloat(v);
     const e = f(b[0]), sc = f(b[1]), key = E.env.key;
     return { e: +e.toPrecision(3), scot: +sc.toFixed(2), lumIfUndimmed: +(key / e).toPrecision(3), La: +(key / e / E.post.pre).toPrecision(3), pre: +E.post.pre.toPrecision(3), lux: +E.sky$.lux.toPrecision(3), moonKey: E.LV.moonKey,
-      sunEl: +(E.sky$.sun.el * 57.3).toFixed(1), moonEl: +(E.sky$.moon.el * 57.3).toFixed(1), lit: +E.sky$.moon.lit.toFixed(2), cat: E.st.cat, sat: E.sky.u.uUseSat.value };
+      sunEl: +(E.sky$.sun.el * 57.3).toFixed(1), moonEl: +(E.sky$.moon.el * 57.3).toFixed(1), lit: +E.sky$.moon.lit.toFixed(2), cat: E.st.cat, sat: E.sky.u.uUseSat.value, shield: E.LV.shield };
   });
   await page.screenshot({ path: `${outDir}/${label}.png` });
   console.log(label, JSON.stringify(info));
