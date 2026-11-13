@@ -167,7 +167,7 @@ span that. The standard approach is used:
   Covering every hurricane-day would be ~1,500 snapshots (~800 MB): too big to ship in an artifact.
   A hosted copy (GitHub Pages) can instead fetch GIBS live: GIBS sends `Access-Control-Allow-Origin: *`.
 
-## Stage 5: live storms and scheduled refresh (this stage)
+## Stage 5: live storms and scheduled refresh
 
 - **Data** (`tools/live.py`, standard library only): NHC `CurrentStorms.json` (active storms, advisory
   number, position, movement, product links; CPHC storms are in the same feed), the ATCF b-deck
@@ -188,14 +188,40 @@ span that. The standard approach is used:
   Isaias (9 Oct 2026, Gulf of Mexico): `python3 tools/live.py src/live_demo.json --demo al092026 010`.
   Note the b-deck has been revised since (85 kt at the fix vs 90 kt in the advisory), so the demo's
   track and advisory numbers differ slightly; in real time they match.
-- **Refresh**: a scheduled task (every 3 h, :45 past 00/03/06/... UTC, ~45 min after each NHC
-  advisory or intermediate advisory) reads `tools/live.txt` and `live.json` from the artifact, runs the
+- **Refresh**: scheduled tasks (owner decision: hurricane season only, monthly otherwise): every 3 h at
+  :45 past 00/03/06/... UTC from 15 May to 30 Nov (two tasks: Jun-Nov and 15-31 May), and 21:45 UTC on
+  the 1st of Dec-May. Each reads `tools/live.txt` and `live.json` from the artifact, runs the
   script and republishes `live.json` only (the OverHead pattern). The build writes `dist/tools/live.txt`.
 - **Publishing from dev**: the build writes an empty placeholder `live.json` unless `LIVE=path` is
   given. Do not republish `live.json` from dev; leave it to the scheduled task (or run
   `tools/live.py` first and pass `LIVE=`).
 - **Not done**: no NASA photo for live storms (model clouds only); storms that ended this season are
   not shown until NOAA finalises HURDAT2; watches/warnings and wind-speed probabilities not drawn.
+
+## Stage 6: intro, settings, phone, methodology, buoys (this stage)
+
+- **Intro** (~20 s): shore 0-10.6 s (unchanged look, faster arrival), fade, then `startRise()`: the
+  dive renderer in reverse, straight up over Katrina's centre at the NASA photo's own time
+  (28 Aug 16:25 UTC) from 1.2 km to 1,500 km in 6.2 s, title (smaller, `.eye`) on from ~50 km over the
+  eye; then `startReveal()`: globe at the same spot and altitude, flies out over 4.6 s while
+  `globe.startReveal()/setReveal()` draws every track segment sorted by time, with a year counter.
+  Skippable (button, Space/Enter/Esc); reduced motion goes straight to the globe. Motion blur is off
+  during the climb. Weak spot: 20-100 km up the cloud tops are flat grey (the parked cloud renderer).
+- **Settings** (O, or the time bar's Settings button): readout, map, key help, lens, shake, motion
+  blur, lightning, frame rate, quality (Auto/Low/Medium/High/Max). Kept in localStorage (try/catch).
+  The H/N/L/K/M/T/F keys toggle the same settings.
+- **Phone** (`PHONE`: coarse pointer and short side < 820 px, or `#phone`): level-0 rendering with the
+  governor allowed up to level 1, smaller FFT cascades (64/128/128), touch stick (throttle holds like a
+  lever, rudder springs back), drag to look with the other finger, key help off, compact HUD/map/time
+  bar. Under 760 px wide the globe panels are bottom sheets (archive collapses; info has a close
+  button), the globe draws higher up the screen (view offset), pinch to zoom. Tested by emulation only
+  (`node test/phone.mjs`); not yet on a real phone.
+- **Methodology page** (`src/methodology.html` -> `dist/methodology.html`): sources and terms,
+  methods, the buoy table, calibration, limits, references. `build.mjs` fills `{{...}}` from
+  `data/buoy_results.json`, the eye fixes, toll and photo index; a missing value fails the build.
+  Linked from the globe legend and the settings panel. GIBS acknowledgment wording verified on
+  earthdata.nasa.gov; the 0.93 at-sea factor verified in Harper et al. (2010) itself.
+- **Buoys and calibration**: see Methods below.
 
 ## Data (`data/`), from Stage 1
 
@@ -289,7 +315,8 @@ W/S or up/down throttle, A/D or left/right rudder, drag to look, gamepad.
 [ ] storm time slower/faster (1x, 10x, 60x, 600x), P pause storm time, G keep pace with the storm,
 B back to the globe. Globe: drag to turn, wheel to zoom, click a track, drag along the selected track.
 1 eyewall, 2 eye, 3 eye edge, 4 outer bands. H readout, N map, T lightning, L lens droplets,
-K shake, M motion blur, F fps counter, I replay intro, V replay dive. Space/Enter/Esc skips.
+K shake, M motion blur, F fps counter, O settings, I replay intro, V replay dive. Space/Enter/Esc skips.
+Phones: on-screen stick (bottom right), drag elsewhere to look; globe: pinch to zoom.
 
 ## Testing
 
@@ -303,6 +330,11 @@ K shake, M motion blur, F fps counter, I replay intro, V replay dive. Space/Ente
     node test/launch.mjs outDir "Name|year|peak or 0-1"...   # globe -> launch -> storm scene
     node test/land.mjs                       # launch-point land check at landfall times
     node test/live.mjs outDir [demo|live] [dive]   # live panel + globe over http (FLY=lat,lon,dist)
+    node test/intro.mjs outDir               # intro rise and track reveal frames
+    node test/riseq.mjs                      # frozen rise frames at set heights
+    node test/phone.mjs outDir               # phone emulation: globe portrait, storm landscape + stick
+    node test/buoys.mjs cases.json out.json  # model at every buoy hour (cases from tools/buoys.py)
+    node test/buoycal.mjs cases.json         # wave-shape calibration (CFG='{...};{...}' to score set values)
     HASH='#low' node test/shot.mjs out.png 800 450 15000 "<js before>" "<js to eval after>"
 
 `shot.mjs` drives headless Chrome with software GL. Useful hooks on `window.__ew`:
@@ -314,9 +346,13 @@ frozen test; that is a test artefact.
 
 Done: Stage 1; Stage 2 (shore opening, Katrina scene); Stage 3 (storm time, speed controls,
 day/night, moon, stars); Stage 4 (globe, archive, tracks, path selector, human toll, launch and dive,
-photos for majors); Stage 5 (live storms, NHC forecast and cone, scheduled refresh); a basic readout, storm map with track, lightning, title and fps governor.
+photos for majors); Stage 5 (live storms, NHC forecast and cone, scheduled refresh); Stage 6 (full
+intro, settings, phone version, methodology page, buoy comparison and calibration).
 
 Left:
-- **Intro remainder** (brief Stage 6): rise from the beach to space, tracks drawing in date order.
-- **Stage 6:** settings panel, phone version, methodology page, buoy comparison across storms and
-  wave-model calibration, GitHub Pages.
+- **GitHub Pages copy**: needs the branch pushed (owner approval). The build output in `dist/` is a
+  static site; `live.json` there would need its own refresh (a GitHub Action could run tools/live.py).
+- **Clouds** (parked by the owner): flat grey cloud tops from low orbit, model-cloud ring/blotches at
+  low altitude in the dive.
+- **Gust factor** is still a 1.2 placeholder; Harper et al. (2010) gives sourced at-sea gust factors.
+- **Real-phone check**: the phone version is tested in emulation only.
