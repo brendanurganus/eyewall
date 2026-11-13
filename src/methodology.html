@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Eyewall: methodology</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;background:#04070b;color:#cfe3f2;font:15px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:860px;margin:0 auto;padding:40px 22px 80px}
+h1{font-size:28px;letter-spacing:.14em;text-transform:uppercase;color:#fff;margin:0 0 4px;font-weight:600}
+.sub{color:#7fa6c2;text-transform:uppercase;font-size:12px;letter-spacing:.08em;margin-bottom:28px}
+h2{font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:#9fd0f0;margin:38px 0 10px;padding-top:14px;border-top:1px solid rgba(110,170,210,.22)}
+h3{font-size:14px;color:#fff;margin:22px 0 6px}
+p,li{color:#c3d8e8}a{color:#9fd0f0}
+.note{border-left:2px solid #ff7a59;padding:8px 14px;background:rgba(255,122,89,.07);color:#ffd9cc}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0 14px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid rgba(110,170,210,.15);vertical-align:top}
+th{color:#7fa6c2;font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:.06em}
+td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pd{color:#7fe0b0}.cc{color:#ffd27a}
+code{font-size:12.5px;color:#e8f3fa;background:rgba(110,170,210,.12);padding:1px 4px}
+.back{display:inline-block;margin-bottom:22px;font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+</style></head><body><main>
+<a class="back" href="index.html#globe">&larr; Back to Eyewall</a>
+<h1>Eyewall</h1><div class="sub">Methodology · data sources · known limits</div>
+
+<p class="note">Every storm condition in Eyewall is a <b>reconstruction</b>: NOAA's measurements of each storm's position, strength and size, run through published parametric wind and wave models. Nothing is a recording. Live storms use NOAA's preliminary operational data. Eyewall is not a forecast and must not be used for safety decisions: use the National Hurricane Center and your local National Weather Service office.</p>
+
+<h2>Data sources and their terms</h2>
+<p>All storm data is from US federal agencies and is in the public domain. Imagery is NASA's, used under NASA's open data policy with the acknowledgment NASA requests. Nothing else third-party ships with the app except the three.js library (code, MIT licence).</p>
+<table>
+<tr><th>Source</th><th>Used for</th><th>Status</th></tr>
+<tr><td>NOAA NHC / CPHC HURDAT2 best track, 2005–2025</td><td>Every archive storm: 6-hourly position, maximum wind, minimum pressure, wind radii; radius of maximum wind from 2021</td><td class="pd">Public domain</td></tr>
+<tr><td>NOAA ATCF best-track files (b-decks)</td><td>Radius of maximum wind and outer pressure/size before 2021 (operational values, 5 nm steps); live storms' track so far</td><td class="pd">Public domain</td></tr>
+<tr><td>NOAA ATCF fix files (f-decks)</td><td>{{n_eyes}} aircraft eye-diameter fixes for {{n_eye_storms}} storms</td><td class="pd">Public domain</td></tr>
+<tr><td>NHC / CPHC Tropical Cyclone Reports</td><td>Deaths and damage in each storm's panel ({{n_toll}} storms compiled; wording follows the reports, including later revisions)</td><td class="pd">Public domain</td></tr>
+<tr><td>NHC <code>CurrentStorms.json</code> and forecast GIS</td><td>Live storms: advisory, official forecast track and cone</td><td class="pd">Public domain</td></tr>
+<tr><td>NOAA NDBC buoys (NOAA-owned stations only)</td><td>Model check and wave calibration (below)</td><td class="pd">Public domain</td></tr>
+<tr><td>NASA Blue Marble Next Generation (via GIBS)</td><td>The globe</td><td class="cc">NASA open data; credit NASA</td></tr>
+<tr><td>NASA MODIS (Terra, Aqua) and VIIRS (Suomi NPP, NOAA-20) corrected reflectance, via GIBS / Worldview Snapshots</td><td>Storm photos from space for {{n_photos}} major hurricanes</td><td class="cc">NASA open data; acknowledgment below</td></tr>
+<tr><td>NASA MODIS land/water mask (via GIBS)</td><td>Coastlines and the "is the yacht at sea" check</td><td class="cc">NASA open data</td></tr>
+</table>
+<p>Extended Best Track (Colorado State / CIRA) was considered for storm structure and not used: it states no licence and carries a copyright notice. Partner-owned NDBC stations were left out of the buoy check for the same reason.</p>
+<p>We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Science Data and Information System (ESDIS).</p>
+<p>Everything else you see is generated in code: the ocean, sky, clouds, rain, the yacht (an original design), the palm tree, textures and the title lettering.</p>
+
+<h2>How the wind is reconstructed</h2>
+<p>For any place and time, Eyewall interpolates the storm's NOAA fixes (every 6 hours, plus landfall and other special points) and builds a wind field with the Holland, Belanger &amp; Fritz (2010) profile. Its shape exponent is fitted separately in each quadrant so the profile passes through NOAA's 64, 50 and 34 kt wind radii, with the peak at the radius of maximum wind. Half the storm's forward speed is added for the asymmetry between its right and left sides, and the surface wind is turned 10–25° inward. Pressure follows the same profile from the central pressure to the outer pressure. Checked for Katrina at 18 UTC 28 Aug 2005: 150 kt at the radius of maximum wind, 902 mb centre, NOAA's radii matched within a few knots.</p>
+<p>Gusts are shown as 1.2 × the sustained wind. That factor is a placeholder, not taken from a source.</p>
+<p>The eye's radius comes from NOAA aircraft fixes when one is within a few hours (weighted by closeness in time), otherwise 0.62 × the radius of maximum wind.</p>
+
+<h2>How the waves are reconstructed</h2>
+<p>The highest significant wave height and peak period for each storm come from Young's (1988) equivalent-fetch model, checked against Young (2017, Atmosphere 8:194). Its fit covers maximum winds of 20–60 m/s; stronger storms are held at 60 m/s rather than extrapolated (so Katrina at peak gives 18.2 m). How waves spread out from that peak (falling off with distance, bigger on the right-front side) is a simple analytic shape of Eyewall's own, calibrated against buoys as described below. The moving sea surface is a JONSWAP spectrum scaled so the simulated surface has that wave height. Whitecaps level off and streaks take over as the wind rises, reaching a whiteout near 40 m/s (Holthuijsen, Powell &amp; Pietrzak 2012).</p>
+
+<h2>Check against NOAA buoys</h2>
+<p>Every archive hurricane fix within 200 km of a NOAA-owned NDBC moored buoy gives a case: {{c.n_cases}} storm–buoy cases from {{c.n_storms}} storms and {{c.n_buoys}} buoys, nearly all in the Atlantic and Gulf. For each case the buoy's hourly record from 36 hours before to 24 hours after the closest approach is compared, hour by hour, with what Eyewall's model gives at the buoy's position. Buoy positions are NDBC's current ones; the historical files carry none.</p>
+<table>
+<tr><th>Quantity</th><th>Hours</th><th>Observed mean</th><th>Model bias</th><th>RMS error</th><th>Correlation</th></tr>
+<tr><td>Pressure (within 300 km)</td><td class="n">{{c.pressure.n}}</td><td class="n">{{c.pressure.obs_mean}} mb</td><td class="n">{{c.pressure.bias}} mb</td><td class="n">{{c.pressure.rmse}} mb</td><td class="n">{{c.pressure.r}}</td></tr>
+<tr><td>Wind (within 300 km)*</td><td class="n">{{c.wind.n}}</td><td class="n">{{c.wind.obs_mean}} m/s</td><td class="n">{{c.wind.bias}} m/s</td><td class="n">{{c.wind.rmse}} m/s</td><td class="n">{{c.wind.r}}</td></tr>
+<tr><td>Wind within 3 × radius of max wind*</td><td class="n">{{c.wind_near_core.n}}</td><td class="n">{{c.wind_near_core.obs_mean}} m/s</td><td class="n">{{c.wind_near_core.bias}} m/s</td><td class="n">{{c.wind_near_core.rmse}} m/s</td><td class="n">{{c.wind_near_core.r}}</td></tr>
+<tr><td>Wave height, all</td><td class="n">{{c.all.hs.n}}</td><td class="n">{{c.all.hs.obs_mean}} m</td><td class="n">{{c.all.hs.bias}} m</td><td class="n">{{c.all.hs.rmse}} m</td><td class="n">{{c.all.hs.r}}</td></tr>
+<tr><td>Wave height, within 3 × RMW</td><td class="n">{{c.all.hs_near_core.n}}</td><td class="n">{{c.all.hs_near_core.obs_mean}} m</td><td class="n">{{c.all.hs_near_core.bias}} m</td><td class="n">{{c.all.hs_near_core.rmse}} m</td><td class="n">{{c.all.hs_near_core.r}}</td></tr>
+<tr><td>Wave height, beyond 8 × RMW</td><td class="n">{{c.all.hs_far.n}}</td><td class="n">{{c.all.hs_far.obs_mean}} m</td><td class="n">{{c.all.hs_far.bias}} m</td><td class="n">{{c.all.hs_far.rmse}} m</td><td class="n">{{c.all.hs_far.r}}</td></tr>
+<tr><td>Peak wave height per case (closest approach &lt; 150 km)</td><td class="n">{{c.all.hs_peak_per_case.n}} cases</td><td class="n">{{c.all.hs_peak_per_case.obs_mean}} m</td><td class="n">{{c.all.hs_peak_per_case.bias}} m</td><td class="n">{{c.all.hs_peak_per_case.rmse}} m</td><td class="n">{{c.all.hs_peak_per_case.r}}</td></tr>
+<tr><td>… cases where the buoy saw 8 m or more</td><td class="n">{{c.all.hs_peak_big.n}} cases</td><td class="n">{{c.all.hs_peak_big.obs_mean}} m</td><td class="n">{{c.all.hs_peak_big.bias}} m</td><td class="n">{{c.all.hs_peak_big.rmse}} m</td><td class="n">{{c.all.hs_peak_big.r}}</td></tr>
+<tr><td>Peak wave period (within 400 km)</td><td class="n">{{c.tp.n}}</td><td class="n">{{c.tp.obs_mean}} s</td><td class="n">{{c.tp.bias}} s</td><td class="n">{{c.tp.rmse}} s</td><td class="n">{{c.tp.r}}</td></tr>
+</table>
+<p>* NOAA's maximum wind is a 1-minute average at 10 m; buoys report 8-minute averages at 3.2–5 m. The model's wind is converted to the buoy's terms with the WMO at-sea factor of 0.93 (Harper, Kepert &amp; Ginger 2010, WMO/TD-No. 1555) and a logarithmic wind profile (roughness 0.002 m) down to each buoy's anemometer height from NDBC's station pages. Unconverted, the model's bias is {{c.wind_raw.bias}} m/s.</p>
+<h3>What this says</h3>
+<ul>
+<li>Pressure is close: the Holland profile from NOAA's central pressure reproduces what buoys measured.</li>
+<li>Wind is a little high overall (bias {{c.wind.bias}} m/s) and more so near the core ({{c.wind_near_core.bias}} m/s). Part of that is the buoys (anemometers a few metres up are sheltered by 10 m seas and buoys pitch), part may be the model.</li>
+<li>Wave heights are right on average but individual peaks are not: the model gets the scale of the biggest seas right, not each one. Near the core it runs too high (bias {{c.all.hs_near_core.bias}} m); for the very biggest seas buoys recorded it is too low on average (bias {{c.all.hs_peak_big.bias}} m) and barely correlated. The largest, Katrina at buoy 42040, is in the table below. Storms becoming extratropical off New England (large, fast wind fields) are the worst cases.</li>
+<li>Wave period is only loosely right.</li>
+</ul>
+<h3>Calibration</h3>
+<p>The analytic wave-spreading shape was fitted on storms from odd years and checked on storms from even years, which the fit never saw. Shrinking Young's peak gave the lowest hour-by-hour error but cut the biggest seas by about a third; forcing the biggest seas up made everything else worse on the held-out storms. So the peak, fall-off and asymmetry are left as they were, and the only change is an ambient sea of 1.5 m that is not made by the storm, added in quadrature. On the held-out storms that lowered the hour-by-hour wave-height error from {{b.held_out.hs.rmse}} m to {{c.held_out.hs.rmse}} m and the far-field bias from {{b.held_out.hs_far.bias}} m to {{c.held_out.hs_far.bias}} m, at the cost of a slightly larger near-core bias ({{b.held_out.hs_near_core.bias}} m to {{c.held_out.hs_near_core.bias}} m).</p>
+<h3>Largest seas recorded</h3>
+<table><tr><th>Storm</th><th>Buoy</th><th>Closest</th><th>Observed peak</th><th>Model peak</th><th>Observed period</th><th>Model period</th></tr>
+{{largest_rows}}
+</table>
+
+<h2>Sky, clouds, light</h2>
+<p>Sun position from standard solar formulas; the moon from the Astronomical Almanac's low-precision formulas, its brightness from Krisciunas &amp; Schaefer (1991). Sky light follows the sun's elevation through twilight, with ozone colouring (after Hillaire 2020). Exposure adapts like a camera, and at night the image shifts toward how the eye sees in the dark. Clouds and rain are generated from the storm model (eyewall, eye, spiral bands). Within 12 hours of a bundled NASA photo, and only in daylight, the cloud layout from space comes from that photo. Lightning is decorative: there is no lightning data behind it.</p>
+
+<h2>Live storms</h2>
+<p>A scheduled job reads NHC's current-storms feed every three hours from 15 May to 30 November (monthly otherwise), with each storm's best track so far, its latest forecast and cone. The track so far is NOAA's preliminary operational best track and is revised after the season. The forecast and cone are drawn as NHC publishes them: the centre stays inside the cone about two thirds of the time, and impacts reach far beyond it. The dive runs only up to the latest fix; it never plays out the forecast.</p>
+
+<h2>Known limits</h2>
+<ul>
+<li>Every storm is a smooth parametric idealisation: no mesoscale vortices, eyewall replacement, land friction or shoaling, and no influence of the ocean floor on waves.</li>
+<li>Radius of maximum wind before 2021 is operational, in 5 nm steps, and drives the size of the eye and eyewall.</li>
+<li>Between NOAA's 6-hourly fixes everything is interpolated.</li>
+<li>NASA photos exist only for major hurricanes, one per storm, from the daytime pass nearest its peak; pass times are estimated.</li>
+<li>Deaths and damage are the reports' figures; 5 early Central Pacific storms are not compiled.</li>
+<li>Gust factor is a placeholder (1.2 × sustained).</li>
+</ul>
+
+<h2>References</h2>
+<ul>
+<li>Holland, G. J., Belanger, J. I. &amp; Fritz, A. (2010). A revised model for radial profiles of hurricane winds. Monthly Weather Review 138, 4393–4401.</li>
+<li>Young, I. R. (1988). Parametric hurricane wave prediction model. Journal of Waterway, Port, Coastal and Ocean Engineering 114, 637–652.</li>
+<li>Young, I. R. (2017). A review of parametric descriptions of tropical cyclone wind-wave generation. Atmosphere 8, 194.</li>
+<li>Holthuijsen, L. H., Powell, M. D. &amp; Pietrzak, J. D. (2012). Wind and waves in extreme hurricanes. Journal of Geophysical Research 117, C09003.</li>
+<li>Harper, B. A., Kepert, J. D. &amp; Ginger, J. D. (2010). Guidelines for converting between various wind averaging periods in tropical cyclone conditions. WMO/TD-No. 1555.</li>
+<li>Krisciunas, K. &amp; Schaefer, B. E. (1991). A model of the brightness of moonlight. PASP 103, 1033–1039.</li>
+<li>Hillaire, S. (2020). A scalable and production ready sky and atmosphere rendering technique. Computer Graphics Forum 39(4).</li>
+<li>Landsea, C. W. &amp; Franklin, J. L. (2013). Atlantic hurricane database uncertainty and presentation of a new database format. Monthly Weather Review 141, 3576–3592 (HURDAT2).</li>
+</ul>
+<p style="color:#6f8ea5;font-size:12px;margin-top:30px">Track colours: the long-standing Wikipedia track-map scheme (NHC has no colour standard). Built with three.js (MIT licence).</p>
+</main></body></html>

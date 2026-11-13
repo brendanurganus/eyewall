@@ -45,7 +45,7 @@ export class GlobeUI {
       <div class="gf" id="gl-cats">${['TD', 'TS', '1', '3'].map((c) => `<button data-c="${c}" class="${c === 'TD' ? 'on' : ''}">${c === 'TD' ? 'All' : c === 'TS' ? 'Named' : c === '1' ? 'Hurricanes' : 'Major'}</button>`).join('')}</div>
       <div id="gl-live"></div><div id="gl-count"></div><div id="gl-list"></div>`;
     $('gl-legend').innerHTML = ['TD', 'TS', '1', '2', '3', '4', '5'].map((c) => `<span>${chip(c)}${c === 'TD' ? 'Depression' : c === 'TS' ? 'Trop. storm' : 'Cat ' + c}</span>`).join('') +
-      '<em>Track colours: Wikipedia track-map scheme (NHC has no colour standard)</em>';
+      '<em>Track colours: Wikipedia track-map scheme (NHC has no colour standard) · <a href="methodology.html" target="_blank" rel="noopener">Methodology and sources</a></em>';
     $('gl-year').onchange = (e) => { this.f.year = e.target.value; this.apply(); };
     $('gl-q').oninput = (e) => { this.f.q = e.target.value.trim().toLowerCase(); this.apply(); };
     $('gl-basins').onclick = (e) => { const b = e.target.dataset.b; if (!b) return; const S = this.f.basins; S.has(b) ? S.delete(b) : S.add(b); if (!S.size) S.add(b); this.apply(); };

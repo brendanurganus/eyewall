@@ -15,4 +15,18 @@ cp('src/sat', 'dist/sat/AL122005');
 fs.copyFileSync('src/live_demo.json', 'dist/live_demo.json');
 fs.mkdirSync('dist/tools', { recursive: true }); fs.copyFileSync('tools/live.py', 'dist/tools/live.txt'); // read by the scheduled refresh
 if (process.env.LIVE) fs.copyFileSync(process.env.LIVE, 'dist/live.json'); else fs.writeFileSync('dist/live.json', JSON.stringify({ checked: null, storms: [] }));
+// methodology page: numbers filled from the analysis outputs so the page cannot drift from them
+{
+  const B = JSON.parse(fs.readFileSync('data/buoy_results.json', 'utf8'));
+  const eyes = JSON.parse(fs.readFileSync('data/aircraft_eyes.json', 'utf8'));
+  const toll = fs.readFileSync('src/toll.js', 'utf8'); const T = JSON.parse(toll.slice(toll.indexOf('{'), toll.lastIndexOf('}') + 1));
+  const sat = fs.readFileSync('src/satindex.js', 'utf8'); const S = JSON.parse(sat.slice(sat.indexOf('{'), sat.lastIndexOf('}') + 1));
+  const ctx = { b: B.baseline, c: B.calibrated, n_eyes: Object.values(eyes).reduce((a, v) => a + v.filter((e) => e.d).length, 0).toLocaleString('en-US'), n_eye_storms: Object.values(eyes).filter((v) => v.some((e) => e.d)).length,
+    n_toll: Object.keys(T).length, n_photos: Object.keys(S).length + (S.AL122005 ? 0 : 1) };
+  const ARCH = (() => { const a = fs.readFileSync('src/archive.js', 'utf8'); return new Map(JSON.parse(a.slice(a.indexOf('['), a.lastIndexOf(']') + 1)).map((x) => [x.id, x])); })();
+  ctx.largest_rows = B.calibrated.largest_cases.map((r) => { const s = ARCH.get(r.storm); return `<tr><td>${s.name} ${s.year}</td><td>${r.buoy}</td><td class="n">${r.closest_km} km</td><td class="n">${r.obs_peak} m</td><td class="n">${r.model_peak} m</td><td class="n">${r.obs_tp ?? '—'} s</td><td class="n">${r.model_tp} s</td></tr>`; }).join('\n');
+  const get = (path) => path.split('.').reduce((o, k) => (o == null ? o : o[k]), ctx);
+  const page = fs.readFileSync('src/methodology.html', 'utf8').replace(/\{\{([\w.]+)\}\}/g, (m, k) => { const v = get(k); if (v == null) throw new Error('methodology: no value for ' + k); return typeof v === 'number' && v > 0 && /bias/.test(k) ? '+' + v : v; });
+  fs.writeFileSync('dist/methodology.html', page);
+}
 console.log('built', (html.length / 1024).toFixed(0), 'KB;', n, 'storm photo sets + Katrina');
