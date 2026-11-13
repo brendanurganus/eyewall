@@ -1,0 +1,1 @@
+{"t": 1318264560000, "src": "MODIS Terra", "used": ["MODIS Terra", "MODIS Aqua"], "wide": [-116.445, 24.555, -96.445, 8.555], "core": [-108.245, 18.355, -104.645, 14.755], "eye": [-106.499, 16.501], "eyeFound": true, "contrast": 84.0, "gaps": 0.0004}

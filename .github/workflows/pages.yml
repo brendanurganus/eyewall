@@ -1,0 +1,67 @@
+# Builds Eyewall and deploys it to GitHub Pages (https://brendanurganus.github.io/eyewall/).
+#   * every push to main deploys the site
+#   * on a schedule it also re-reads NOAA NHC's live storms (tools/live.py) into live.json and redeploys:
+#     every 3 hours from 15 May to 30 Nov (hurricane season), and on the 1st of each month otherwise
+# The live data is rebuilt fresh on each run and not committed. If NHC cannot be reached, the site
+# still deploys and its live panel says the feed could not be set up for that build.
+# One-time setup: repository Settings > Pages > Build and deployment > Source: GitHub Actions.
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "50 */3 * 6-11 *"       # Jun-Nov, every 3 h (~50 min after each NHC advisory time)
+    - cron: "50 */3 15-31 5 *"      # 15-31 May
+    - cron: "50 21 1 12,1,2,3,4,5 *" # off season: monthly
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci --omit=dev
+
+      - name: Live storms from NHC
+        id: live
+        continue-on-error: true
+        run: |
+          python3 tools/live.py live.json
+          python3 -c "import json; d=json.load(open('live.json')); assert 'checked' in d and isinstance(d['storms'], list); print(len(d['storms']), 'active storms')"
+
+      - name: Build
+        run: |
+          if [ "${{ steps.live.outcome }}" = "success" ]; then export LIVE=live.json; fi
+          node build.mjs
+          touch dist/.nojekyll
+          du -sh dist
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
